@@ -1,0 +1,114 @@
+# ClauseCheck – Build Walkthrough
+
+## What Was Built
+
+A complete **bilingual (English/Hindi) AI-powered legal contract analyzer** with:
+
+- **FastAPI Backend** — Full NLP pipeline with 14 processing steps
+- **React/Vite Frontend** — Premium dark-mode UI with glassmorphism design
+- **Supabase Integration** — With in-memory fallback when credentials aren't configured
+
+---
+
+## Project Structure
+
+```
+NLP_Project/
+├── backend/
+│   ├── main.py                        # FastAPI app with CORS & lifespan
+│   ├── config.py                      # Environment configuration
+│   ├── requirements.txt               # Python dependencies
+│   ├── .env.example                   # Env template
+│   ├── routers/
+│   │   ├── analyze.py                 # POST /api/analyze (full pipeline)
+│   │   └── history.py                 # GET /api/history
+│   ├── services/
+│   │   ├── document_parser.py         # PDF/DOCX/TXT parsing
+│   │   ├── ocr_service.py            # Tesseract OCR (eng+hin)
+│   │   ├── language_detector.py       # Hindi/English detection
+│   │   ├── clause_segmenter.py        # Section-based segmentation
+│   │   ├── entity_extractor.py        # NER (spaCy + Stanza + regex)
+│   │   ├── obligation_detector.py     # Modal verb analysis
+│   │   ├── risk_detector.py           # 10 risk pattern categories
+│   │   ├── compliance_checker.py      # 12 essential clause checks
+│   │   ├── explanation_generator.py   # Bilingual explanations
+│   │   └── summarizer.py             # TF-IDF extractive summary
+│   └── db/
+│       └── supabase_client.py         # DB with memory fallback
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx                    # Router setup
+│   │   ├── index.css                  # Full design system
+│   │   ├── pages/
+│   │   │   ├── UploadPage.jsx         # Drag-and-drop upload
+│   │   │   ├── ResultsPage.jsx        # Tabbed result view
+│   │   │   └── HistoryPage.jsx        # Chart.js dashboard
+│   │   └── components/
+│   │       ├── Header.jsx             # Navigation
+│   │       ├── ScoreGauge.jsx         # SVG circular gauge
+│   │       ├── RiskBadge.jsx          # Severity badges
+│   │       └── ClauseCard.jsx         # Expandable clause view
+│   └── index.html                     # SEO-optimized
+└── srs.txt
+```
+
+---
+
+## Analysis Pipeline (14 Steps)
+
+1. **Validate** file type/size
+2. **Parse** document (PDF/DOCX/TXT)
+3. **OCR** if scanned (Tesseract)
+4. **Detect** language (Hindi/English)
+5. **Segment** into clauses
+6. **Extract** named entities
+7. **Detect** obligations
+8. **Analyze** risks (10 categories)
+9. **Check** compliance (12 clauses)
+10. **Generate** explanations
+11. **Summarize** document
+12. **Store** results in Supabase
+13. **Return** JSON response
+14. **Delete** raw document from memory
+
+---
+
+## How to Run
+
+### Backend
+```bash
+cd NLP_Project/backend
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+# Copy .env.example to .env and configure Supabase (optional)
+uvicorn main:app --reload --port 8000
+```
+
+### Frontend
+```bash
+cd NLP_Project/frontend
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** and upload a legal contract.
+
+---
+
+## Verification
+
+| Test | Result |
+|------|--------|
+| Frontend build | ✅ Built successfully (7.2s) |
+| All files created | ✅ 22 source files |
+| Project structure | ✅ Follows SRS architecture |
+
+---
+
+## Key Design Decisions
+
+- **In-memory fallback**: Works without Supabase credentials for development/testing
+- **Lazy model loading**: spaCy loaded on startup, Stanza loaded on first Hindi document
+- **Privacy-first**: Documents processed in memory, deleted via `gc.collect()` in `finally` block
+- **Graceful degradation**: OCR is optional — app works without Tesseract for text-based documents
+- **Bilingual explanations**: All risk/compliance explanations have Hindi translations

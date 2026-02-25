@@ -1,0 +1,401 @@
+# 📘 SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
+
+# Project Title
+
+**ClauseCheck – Bilingual Legal Contract Risk & Compliance Analyzer**
+
+---
+
+# 1. Introduction
+
+## 1.1 Purpose
+
+This document describes the functional and non-functional requirements of ClauseCheck, a bilingual AI-powered legal contract analysis system.
+
+The system analyzes legal documents in Hindi and English, detects risks and compliance issues, and generates an explainable report. Documents are processed temporarily and deleted after analysis. Only final structured results are stored in Supabase PostgreSQL.
+
+---
+
+## 1.2 Scope
+
+ClauseCheck will:
+
+* Accept typed and scanned legal documents
+* Support English and Hindi
+* Use OCR for printed scanned documents
+* Perform clause-level NLP analysis
+* Detect obligations and risks
+* Generate compliance scores
+* Store only final structured results
+* Delete original documents after processing
+
+The system will NOT:
+
+* Verify stamps or signatures
+* Process handwritten documents
+* Provide legal advice
+* Store raw documents permanently
+
+---
+
+# 2. Overall System Description
+
+---
+
+## 2.1 Product Perspective
+
+The system consists of:
+
+### Frontend
+
+* React.js web application
+* Uses built-in `fetch()` API for backend communication
+
+### Backend
+
+* FastAPI (Python)
+* NLP engine
+* OCR integration
+* Rule engine
+
+### Database
+
+* Supabase (PostgreSQL)
+* Stores final analysis only
+
+---
+
+## 2.2 System Architecture
+
+```text
+Frontend (React)
+       ↓
+Fetch API calls
+       ↓
+FastAPI Backend
+       ↓
+Temporary Memory Storage
+       ↓
+OCR (if scanned)
+       ↓
+Language Detection
+       ↓
+NLP Processing
+       ↓
+Risk & Compliance Engine
+       ↓
+Generate Structured JSON Result
+       ↓
+Store Result in Supabase
+       ↓
+Delete Raw Document
+```
+
+---
+
+# 3. Functional Requirements
+
+---
+
+## 3.1 User Authentication (Optional)
+
+If implemented:
+
+* User can register/login via Supabase Auth
+* Each user sees only their own analysis results
+
+---
+
+## 3.2 Document Upload
+
+The system shall:
+
+* Accept `.pdf`, `.docx`, `.txt`
+* Accept scanned PDF (image-based)
+* Accept file size up to 10MB
+* Store uploaded file temporarily in memory
+
+---
+
+## 3.3 OCR Processing
+
+If document is scanned:
+
+* Use Tesseract OCR
+* Support:
+
+  * English model
+  * Hindi (Devanagari) model
+* Extract text from printed content only
+
+---
+
+## 3.4 Language Detection
+
+System shall:
+
+* Detect language automatically (Hindi / English)
+* Route document to appropriate NLP pipeline
+
+---
+
+## 3.5 Clause Segmentation
+
+System shall:
+
+* Break document into logical clauses
+* Handle numbered sections
+* Handle long legal sentences
+
+---
+
+## 3.6 Named Entity Extraction
+
+System shall extract:
+
+* Parties involved
+* Dates
+* Monetary values
+* Duration
+* Legal references
+
+---
+
+## 3.7 Obligation Detection
+
+System shall detect:
+
+* Modal verbs (shall, must, may)
+* Responsible party
+* Action to be performed
+* Conditions and deadlines
+
+---
+
+## 3.8 Risk Detection
+
+System shall detect risky clauses such as:
+
+* Unlimited liability
+* One-sided termination
+* Missing notice period
+* Auto-renewal clauses
+* Vague penalties
+
+Each clause will be labeled:
+
+* High risk
+* Medium risk
+* Low risk
+
+---
+
+## 3.9 Compliance Checking
+
+System shall:
+
+* Check presence of essential clauses
+* Detect missing important clauses
+* Map clauses to predefined legal rule set
+* Generate compliance score (0–100)
+
+---
+
+## 3.10 Explanation Generation
+
+System shall:
+
+* Provide simple-language explanation
+* Highlight risky clause text
+* Explain why clause is flagged
+
+---
+
+## 3.11 Result Storage
+
+System shall store in Supabase:
+
+* Document name
+* Language
+* Risk score
+* Compliance score
+* Clause analysis (JSONB)
+* Summary
+* Timestamp
+
+System shall NOT store:
+
+* Raw document
+* Extracted full text
+
+---
+
+## 3.12 Document Deletion
+
+After analysis:
+
+* Temporary file shall be deleted
+* Memory buffer cleared
+* No raw data retained
+
+---
+
+# 4. Non-Functional Requirements
+
+---
+
+## 4.1 Security
+
+* HTTPS communication
+* No permanent storage of raw documents
+* Supabase row-level security (if authentication enabled)
+
+---
+
+## 4.2 Performance
+
+* Documents up to 20 pages processed under 30 seconds
+* OCR performance dependent on scan quality
+
+---
+
+## 4.3 Scalability
+
+* Backend stateless design
+* Supabase cloud database
+* Clause-level chunking for large documents
+
+---
+
+## 4.4 Privacy
+
+* Privacy-by-design architecture
+* No sensitive contract data stored permanently
+
+---
+
+# 5. NLP Components Used
+
+* Tokenization
+* Clause segmentation
+* POS tagging
+* Named Entity Recognition
+* Dependency parsing
+* Obligation detection
+* Text classification
+* Semantic similarity
+* Rule-based NLP
+* Summarization
+* Explainable NLP
+
+---
+
+# 6. Tech Stack
+
+---
+
+## Frontend
+
+* React.js
+* Built-in `fetch()` for API calls
+* Chart.js (dashboard)
+
+Example API call:
+
+```javascript
+fetch("/api/analyze", {
+  method: "POST",
+  body: formData
+})
+```
+
+---
+
+## Backend
+
+* Python
+* FastAPI
+* Uvicorn
+
+---
+
+## NLP Libraries
+
+### English
+
+* spaCy
+* Sentence Transformers
+
+### Hindi
+
+* Stanza
+* Indic NLP
+* Multilingual Sentence Transformers
+
+---
+
+## OCR
+
+* Tesseract (English + Hindi models)
+
+---
+
+## Database
+
+* Supabase (PostgreSQL)
+* JSONB support for clause analysis
+
+---
+
+# 7. Database Schema
+
+## Table: analysis_results
+
+| Column           | Type      |
+| ---------------- | --------- |
+| id               | UUID      |
+| document_name    | TEXT      |
+| language         | TEXT      |
+| risk_score       | INTEGER   |
+| compliance_score | INTEGER   |
+| summary          | TEXT      |
+| clause_analysis  | JSONB     |
+| created_at       | TIMESTAMP |
+
+---
+
+# 8. Limitations
+
+* No handwritten support
+* No stamp verification
+* No legal advice generation
+* Hindi NLP accuracy depends on model limitations
+
+---
+
+# 9. Future Enhancements
+
+* Cross-language comparison
+* Contract version comparison
+* Timeline visualization
+* Legal knowledge graph integration
+* Advanced AI explainability layer
+
+---
+
+# 10. Expected Outcome
+
+The system will:
+
+* Improve contract transparency
+* Detect potential risks
+* Provide explainable legal insights
+* Ensure privacy-preserving analysis
+
+---
+
+# Final Summary Statement
+
+ClauseCheck is a bilingual, OCR-enabled, privacy-focused AI legal contract analysis system that processes documents temporarily, performs clause-level NLP analysis, detects risks and compliance issues, and stores only structured results securely in Supabase PostgreSQL.
+
+---
