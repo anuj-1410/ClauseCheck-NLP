@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
 import ScoreGauge from '../components/ScoreGauge';
 import ClauseCard from '../components/ClauseCard';
+import {
+    IconClause, IconLightbulb, IconSearch, IconAmbiguity, IconTimeline,
+    IconUsers, IconPin, IconCheck, IconWhatIf, IconChat, IconDownload,
+    IconPlus, IconFile, IconGlobe, IconScale, IconCompare, IconTarget,
+    IconCalendar, IconDollar, IconDot, IconArrowDown, IconNegotiate
+} from '../components/Icons';
 
 const API_URL = 'http://localhost:8000';
 
@@ -67,7 +74,7 @@ export default function ResultsPage() {
     };
 
     if (loading) return <div className="page"><div className="container" style={{ textAlign: 'center', paddingTop: 100 }}><div className="spinner" style={{ margin: '0 auto' }} /><p style={{ marginTop: 20, color: 'var(--text-muted)' }}>Loading results...</p></div></div>;
-    if (error || !result) return <div className="page"><div className="container"><div className="error-message">{error || 'Not found.'}</div><button className="btn btn-primary" onClick={() => navigate('/')} style={{ marginTop: 20 }}>← Analyze Another</button></div></div>;
+    if (error || !result) return <div className="page"><div className="container"><div className="error-message">{error || 'Not found.'}</div><button className="btn btn-primary" onClick={() => navigate('/')} style={{ marginTop: 20 }}>Analyze Another</button></div></div>;
 
     const { clause_analysis: ca } = result;
     const clauses = ca?.clauses || [];
@@ -85,28 +92,28 @@ export default function ResultsPage() {
     const jurisdictionInfo = ca?.jurisdiction || {};
     const contractTypeInfo = ca?.contract_type || {};
 
-    const riskColor = result.risk_score > 60 ? '#ef4444' : result.risk_score > 30 ? '#f59e0b' : '#22c55e';
-    const complianceColor = result.compliance_score >= 70 ? '#22c55e' : result.compliance_score >= 40 ? '#f59e0b' : '#ef4444';
+    const riskColor = result.risk_score > 60 ? '#f87171' : result.risk_score > 30 ? '#fbbf24' : '#4ade80';
+    const complianceColor = result.compliance_score >= 70 ? '#4ade80' : result.compliance_score >= 40 ? '#fbbf24' : '#f87171';
     const assessmentClass = result.risk_score > 60 ? 'danger' : result.risk_score > 30 ? 'warning' : 'safe';
 
     const tabs = [
-        { id: 'clauses', label: '📝 Clauses', count: clauses.length },
-        { id: 'plain', label: '💡 Plain English', count: plainEnglish.length },
-        { id: 'risks', label: '🔍 Risks', count: risks.length },
-        { id: 'responsibility', label: '🕵️ Ambiguity', count: responsibility.total_issues || 0 },
-        { id: 'timeline', label: '⏱️ Timeline', count: timeline.total_events || 0 },
-        { id: 'entities', label: '👤 Entities', count: Object.values(entities).flat().length },
-        { id: 'obligations', label: '📌 Obligations', count: obligations.length },
-        { id: 'compliance', label: '✅ Compliance', count: compliance.total_checked || 0 },
-        { id: 'whatif', label: '🔮 What-If' },
+        { id: 'clauses', label: 'Clauses', Icon: IconClause, count: clauses.length },
+        { id: 'plain', label: 'Plain English', Icon: IconLightbulb, count: plainEnglish.length },
+        { id: 'risks', label: 'Risks', Icon: IconSearch, count: risks.length },
+        { id: 'responsibility', label: 'Ambiguity', Icon: IconAmbiguity, count: responsibility.total_issues || 0 },
+        { id: 'timeline', label: 'Timeline', Icon: IconTimeline, count: timeline.total_events || 0 },
+        { id: 'entities', label: 'Entities', Icon: IconUsers, count: Object.values(entities).flat().length },
+        { id: 'obligations', label: 'Obligations', Icon: IconPin, count: obligations.length },
+        { id: 'compliance', label: 'Compliance', Icon: IconCheck, count: compliance.total_checked || 0 },
+        { id: 'whatif', label: 'What-If', Icon: IconWhatIf },
     ];
 
     const entityCats = [
-        { key: 'parties', label: 'Parties', icon: '👤' },
-        { key: 'dates', label: 'Dates', icon: '📅' },
-        { key: 'monetary_values', label: 'Monetary Values', icon: '💰' },
-        { key: 'durations', label: 'Durations', icon: '⏱️' },
-        { key: 'legal_references', label: 'Legal References', icon: '⚖️' },
+        { key: 'parties', label: 'Parties', Icon: IconUsers },
+        { key: 'dates', label: 'Dates', Icon: IconCalendar },
+        { key: 'monetary_values', label: 'Monetary Values', Icon: IconDollar },
+        { key: 'durations', label: 'Durations', Icon: IconTimeline },
+        { key: 'legal_references', label: 'Legal References', Icon: IconScale },
     ];
 
     return (
@@ -118,13 +125,13 @@ export default function ResultsPage() {
                         <h1 className="results-title">Analysis Report</h1>
                     </div>
                     <div className="results-meta">
-                        <span className="meta-badge">📄 {result.document_name}</span>
-                        <span className="meta-badge">🌐 {result.language}</span>
-                        {jurisdictionInfo.name && <span className="meta-badge">⚖️ {jurisdictionInfo.name}</span>}
-                        {contractTypeInfo.name && <span className="meta-badge">📋 {contractTypeInfo.name}</span>}
-                        <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/chat/${id}`)}>💬 Chat</button>
-                        <a className="btn btn-secondary btn-sm" href={`${API_URL}/api/report/${id}`} target="_blank" rel="noreferrer">📥 PDF</a>
-                        <button className="btn btn-primary btn-sm" onClick={() => navigate('/')}>+ New</button>
+                        <span className="meta-badge"><IconFile size={14} /> {result.document_name}</span>
+                        <span className="meta-badge"><IconGlobe size={14} /> {result.language}</span>
+                        {jurisdictionInfo.name && <span className="meta-badge"><IconScale size={14} /> {jurisdictionInfo.name}</span>}
+                        {contractTypeInfo.name && <span className="meta-badge"><IconCompare size={14} /> {contractTypeInfo.name}</span>}
+                        <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/chat/${id}`)}><IconChat size={14} /> Chat</button>
+                        <a className="btn btn-secondary btn-sm" href={`${API_URL}/api/report/${id}`} target="_blank" rel="noreferrer"><IconDownload size={14} /> PDF</a>
+                        <button className="btn btn-primary btn-sm" onClick={() => navigate('/')}><IconPlus size={14} /> New</button>
                     </div>
                 </div>
 
@@ -133,21 +140,22 @@ export default function ResultsPage() {
                     <ScoreGauge score={result.risk_score} label="Risk Score" color={riskColor} />
                     <ScoreGauge score={result.compliance_score} label="Compliance Score" color={complianceColor} />
                     {responsibility.ambiguity_score !== undefined && (
-                        <ScoreGauge score={responsibility.ambiguity_score} label="Ambiguity Score" color={responsibility.ambiguity_score > 50 ? '#f59e0b' : '#22c55e'} />
+                        <ScoreGauge score={responsibility.ambiguity_score} label="Ambiguity Score" color={responsibility.ambiguity_score > 50 ? '#fbbf24' : '#4ade80'} />
                     )}
                 </div>
 
                 {/* Summary */}
                 <div className="summary-section glass-card animate-slide-up delay-2">
-                    <h3>📋 Executive Summary</h3>
-                    <p className="summary-text">{result.summary}</p>
-                    {overallSummary && <div className={`overall-assessment ${assessmentClass}`}>{overallSummary}</div>}
+                    <h3><IconFile size={18} /> Executive Summary</h3>
+                    <div className="summary-text markdown-body"><ReactMarkdown>{result.summary}</ReactMarkdown></div>
+                    {overallSummary && <div className={`overall-assessment ${assessmentClass} markdown-body`}><ReactMarkdown>{overallSummary}</ReactMarkdown></div>}
                 </div>
 
                 {/* Tabs */}
                 <div className="tabs-container">
                     {tabs.map(tab => (
                         <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+                            <tab.Icon size={14} />
                             {tab.label}
                             {tab.count !== undefined && <span className="tab-count">{tab.count}</span>}
                         </button>
@@ -169,14 +177,14 @@ export default function ResultsPage() {
                     <section className="animate-in">
                         <div className="section-header"><h2>Plain English Breakdown</h2><span className="section-badge">{plainEnglish.length} translated</span></div>
                         {plainEnglish.length === 0 ? (
-                            <div className="empty-state glass-card"><div className="empty-state-icon">💡</div><p>Plain English translations require a GROQ_API_KEY configured in the backend.</p></div>
+                            <div className="empty-state glass-card"><div className="empty-state-icon"><IconLightbulb size={48} /></div><p>Plain English translations require a GROQ_API_KEY configured in the backend.</p></div>
                         ) : (
                             <div className="plain-english-list">
                                 {plainEnglish.map((pe, i) => (
                                     <div key={i} className="plain-english-card glass-card animate-slide-up" style={{ animationDelay: `${i * 0.05}s` }}>
                                         <div className="clause-id" style={{ marginBottom: 10, display: 'inline-block' }}>Clause #{pe.clause_id}</div>
                                         <div className="original">{pe.original}</div>
-                                        <span className="arrow">↓ Simplified</span>
+                                        <span className="arrow"><IconArrowDown size={14} /> Simplified</span>
                                         <div className="simplified">{pe.simplified}</div>
                                     </div>
                                 ))}
@@ -194,26 +202,29 @@ export default function ResultsPage() {
                             return (
                                 <div key={i} className="glass-card" style={{ marginBottom: 10, padding: 18 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                                        <span className={`risk-badge ${risk.severity}`}>{risk.severity === 'high' ? '🔴' : risk.severity === 'medium' ? '🟡' : '🟢'} {risk.severity}</span>
+                                        <span className={`risk-badge ${risk.severity}`}>
+                                            <IconDot size={7} color={risk.severity === 'high' ? 'var(--risk-high)' : risk.severity === 'medium' ? 'var(--risk-medium)' : 'var(--risk-low)'} />
+                                            {risk.severity}
+                                        </span>
                                         <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{risk.risk_type?.replace(/_/g, ' ')}</span>
-                                        <span className="confidence-badge">🎯 {Math.round((risk.confidence || 0.7) * 100)}%</span>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>Clause #{risk.clause_id}</span>
+                                        <span className="confidence-badge"><IconTarget size={10} /> {Math.round((risk.confidence || 0.7) * 100)}%</span>
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto', fontFamily: 'var(--mono)' }}>Clause #{risk.clause_id}</span>
                                     </div>
                                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{risk.description}</p>
-                                    {risk.legal_note && <p style={{ fontSize: '0.78rem', color: 'var(--accent-amber)', marginTop: 6 }}>⚖️ {risk.legal_note}</p>}
+                                    {risk.legal_note && <p style={{ fontSize: '0.78rem', color: 'var(--accent-amber)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}><IconScale size={12} /> {risk.legal_note}</p>}
                                     <div style={{ marginTop: 10 }}>
                                         {negotiations[key] ? (
-                                            <div className="negotiation-advice">{negotiations[key]}</div>
+                                            <div className="negotiation-advice markdown-body"><ReactMarkdown>{negotiations[key]}</ReactMarkdown></div>
                                         ) : (
                                             <button className="btn btn-secondary btn-sm" onClick={() => handleNegotiate(risk)} disabled={negotiateLoading[key]}>
-                                                {negotiateLoading[key] ? '⏳ Analyzing...' : '🤝 Get Negotiation Advice'}
+                                                {negotiateLoading[key] ? 'Analyzing...' : <><IconNegotiate size={14} /> Get Negotiation Advice</>}
                                             </button>
                                         )}
                                     </div>
                                 </div>
                             );
                         })}
-                        {risks.length === 0 && <div className="empty-state glass-card"><div className="empty-state-icon">✅</div><p>No risks detected!</p></div>}
+                        {risks.length === 0 && <div className="empty-state glass-card"><div className="empty-state-icon"><IconCheck size={48} /></div><p>No risks detected!</p></div>}
                     </section>
                 )}
 
@@ -221,19 +232,19 @@ export default function ResultsPage() {
                 {activeTab === 'responsibility' && (
                     <section className="animate-in">
                         <div className="section-header"><h2>Responsibility & Ambiguity</h2><span className="section-badge">{responsibility.total_issues || 0} issues</span></div>
-                        {(responsibility.passive_voice || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--risk-high)' }}>🔴 Passive Voice ({responsibility.passive_voice.length})</h3>
+                        {(responsibility.passive_voice || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--risk-high)' }}>Passive Voice ({responsibility.passive_voice.length})</h3>
                             <div className="responsibility-list">{responsibility.passive_voice.map((pv, i) => (
-                                <div key={i} className="responsibility-item passive"><div className="issue-type" style={{ color: 'var(--risk-high)' }}>Passive Voice — Clause #{pv.clause_id}</div><p>{pv.issue}</p><p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 4 }}>Matched: "{pv.matched_text}"</p><p style={{ color: 'var(--accent-emerald)', fontSize: '0.8rem', marginTop: 4 }}>💡 {pv.suggestion}</p></div>
+                                <div key={i} className="responsibility-item passive"><div className="issue-type" style={{ color: 'var(--risk-high)' }}>Passive Voice — Clause #{pv.clause_id}</div><p>{pv.issue}</p><p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 4 }}>Matched: "{pv.matched_text}"</p><p style={{ color: 'var(--accent-teal)', fontSize: '0.8rem', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><IconLightbulb size={12} /> {pv.suggestion}</p></div>
                             ))}</div></>)}
-                        {(responsibility.vague_terms || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--accent-amber)' }}>🟡 Vague Terms ({responsibility.vague_terms.length})</h3>
+                        {(responsibility.vague_terms || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--accent-amber)' }}>Vague Terms ({responsibility.vague_terms.length})</h3>
                             <div className="responsibility-list">{responsibility.vague_terms.map((vt, i) => (
                                 <div key={i} className="responsibility-item vague"><div className="issue-type" style={{ color: 'var(--accent-amber)' }}>Vague Term — Clause #{vt.clause_id}</div><p>{vt.issue}</p><p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: 4 }}>Context: {vt.context}</p></div>
                             ))}</div></>)}
-                        {(responsibility.missing_subjects || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--accent-purple)' }}>🟣 Missing Subjects ({responsibility.missing_subjects.length})</h3>
+                        {(responsibility.missing_subjects || []).length > 0 && (<><h3 style={{ fontSize: '0.95rem', margin: '16px 0 10px', color: 'var(--accent-blue)' }}>Missing Subjects ({responsibility.missing_subjects.length})</h3>
                             <div className="responsibility-list">{responsibility.missing_subjects.map((ms, i) => (
-                                <div key={i} className="responsibility-item missing"><div className="issue-type" style={{ color: 'var(--accent-purple)' }}>Missing Subject — Clause #{ms.clause_id}</div><p>{ms.issue}</p></div>
+                                <div key={i} className="responsibility-item missing"><div className="issue-type" style={{ color: 'var(--accent-blue)' }}>Missing Subject — Clause #{ms.clause_id}</div><p>{ms.issue}</p></div>
                             ))}</div></>)}
-                        {(responsibility.total_issues || 0) === 0 && <div className="empty-state glass-card"><div className="empty-state-icon">✅</div><p>No ambiguity issues detected.</p></div>}
+                        {(responsibility.total_issues || 0) === 0 && <div className="empty-state glass-card"><div className="empty-state-icon"><IconCheck size={48} /></div><p>No ambiguity issues detected.</p></div>}
                     </section>
                 )}
 
@@ -246,17 +257,17 @@ export default function ResultsPage() {
                                 {timeline.events.map((ev, i) => (
                                     <div key={i} className="timeline-event animate-slide-up" style={{ animationDelay: `${i * 0.06}s` }}>
                                         <div className="timeline-event-header">
-                                            <span className="timeline-event-type" style={{ background: `${ev.category?.color || '#3b82f6'}20`, color: ev.category?.color || '#3b82f6' }}>
-                                                {ev.category?.icon} {ev.type}
+                                            <span className="timeline-event-type" style={{ background: `${ev.category?.color || '#38bdf8'}18`, color: ev.category?.color || '#38bdf8' }}>
+                                                {ev.type}
                                             </span>
                                             <span className="timeline-event-value">{ev.value}</span>
                                         </div>
                                         <p className="timeline-event-desc">{ev.description}</p>
-                                        {ev.clause_id && <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>Clause #{ev.clause_id}</span>}
+                                        {ev.clause_id && <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>Clause #{ev.clause_id}</span>}
                                     </div>
                                 ))}
                             </div>
-                        ) : <div className="empty-state glass-card"><div className="empty-state-icon">📅</div><p>No timeline events found.</p></div>}
+                        ) : <div className="empty-state glass-card"><div className="empty-state-icon"><IconCalendar size={48} /></div><p>No timeline events found.</p></div>}
                     </section>
                 )}
 
@@ -268,7 +279,7 @@ export default function ResultsPage() {
                             {entityCats.map(cat => {
                                 const items = entities[cat.key] || [];
                                 if (items.length === 0) return null;
-                                return (<div key={cat.key} className="entity-card glass-card"><h4>{cat.icon} {cat.label}</h4><ul className="entity-list">{items.slice(0, 12).map((item, i) => <li key={i}>{item.text}</li>)}{items.length > 12 && <li style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>+{items.length - 12} more</li>}</ul></div>);
+                                return (<div key={cat.key} className="entity-card glass-card"><h4><cat.Icon size={16} /> {cat.label}</h4><ul className="entity-list">{items.slice(0, 12).map((item, i) => <li key={i}>{item.text}</li>)}{items.length > 12 && <li style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>+{items.length - 12} more</li>}</ul></div>);
                             })}
                         </div>
                     </section>
@@ -283,7 +294,7 @@ export default function ResultsPage() {
                                 <div key={i} className="obligation-card glass-card">
                                     <div className="obligation-header">
                                         <span className={`obligation-strength ${obl.strength}`}>{obl.strength}</span>
-                                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Clause #{obl.clause_id}</span>
+                                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>Clause #{obl.clause_id}</span>
                                     </div>
                                     <p className="obligation-text">{obl.text}</p>
                                     <div className="obligation-details">
@@ -309,7 +320,7 @@ export default function ResultsPage() {
                                     <div style={{ flex: 1 }}>
                                         <div className="compliance-label">{item.clause_type?.replace(/_/g, ' ')}</div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{item.description}</div>
-                                        {item.legal_reference && <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: 2 }}>⚖️ {item.legal_reference}</div>}
+                                        {item.legal_reference && <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><IconScale size={10} /> {item.legal_reference}</div>}
                                     </div>
                                 </div>
                             ))}
@@ -344,13 +355,13 @@ export default function ResultsPage() {
                             {whatIfClause && (
                                 <div className="whatif-panel">
                                     <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6, display: 'block' }}>Original clause:</label>
-                                    <div style={{ padding: 12, background: 'rgba(0,0,0,0.2)', borderRadius: 8, fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 14 }}>{whatIfClause.text}</div>
+                                    <div style={{ padding: 12, background: 'rgba(0,0,0,0.15)', borderRadius: 8, fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: 14 }}>{whatIfClause.text}</div>
                                     <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6, display: 'block' }}>Your modified version:</label>
                                     <textarea className="whatif-textarea" value={whatIfText} onChange={e => setWhatIfText(e.target.value)} placeholder="Edit the clause text..." />
                                     <button className="btn btn-primary" onClick={handleWhatIf} disabled={whatIfLoading} style={{ marginTop: 12 }}>
-                                        {whatIfLoading ? '⏳ Analyzing...' : '🔮 Simulate Change'}
+                                        {whatIfLoading ? 'Analyzing...' : <><IconWhatIf size={14} /> Simulate Change</>}
                                     </button>
-                                    {whatIfResult && <div className="whatif-result">{whatIfResult}</div>}
+                                    {whatIfResult && <div className="whatif-result markdown-body"><ReactMarkdown>{whatIfResult}</ReactMarkdown></div>}
                                 </div>
                             )}
                         </div>

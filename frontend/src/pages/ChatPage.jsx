@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import { IconChat, IconArrowLeft, IconSend } from '../components/Icons';
 
 const API_URL = 'http://localhost:8000';
 
@@ -29,7 +31,7 @@ export default function ChatPage() {
         }
         setMessages([{
             role: 'assistant',
-            content: "Hi! I'm your contract Q&A assistant. Ask me anything about this document and I'll find the answer for you. 👇",
+            content: "Hi! I'm your contract Q&A assistant. Ask me anything about this document and I'll find the answer for you.",
         }]);
     }, [id]);
 
@@ -79,14 +81,16 @@ export default function ChatPage() {
             <div className="container">
                 <div className="chat-container animate-in">
                     <div className="chat-header">
-                        <h2>💬 Contract Q&A {docName && `— ${docName}`}</h2>
-                        <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/results/${id}`)}>← Back to Results</button>
+                        <h2><IconChat size={18} /> Contract Q&A {docName && `— ${docName}`}</h2>
+                        <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/results/${id}`)}><IconArrowLeft size={14} /> Back to Results</button>
                     </div>
 
                     <div className="chat-messages">
                         {messages.map((msg, i) => (
                             <div key={i} className={`chat-message ${msg.role}`}>
-                                {msg.content}
+                                {msg.role === 'assistant' ? (
+                                    <div className="markdown-body"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+                                ) : msg.content}
                             </div>
                         ))}
                         {loading && (
@@ -115,7 +119,7 @@ export default function ChatPage() {
                             disabled={loading}
                         />
                         <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !input.trim()}>
-                            Send
+                            <IconSend size={14} />
                         </button>
                     </form>
                 </div>

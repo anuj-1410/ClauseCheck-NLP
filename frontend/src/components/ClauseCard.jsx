@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import RiskBadge from './RiskBadge';
+import { IconCheck } from './Icons';
 import anime from 'animejs';
 
 export default function ClauseCard({ clause, risks, explanations }) {
@@ -22,17 +23,15 @@ export default function ClauseCard({ clause, risks, explanations }) {
         if (cardRef.current) {
             anime({
                 targets: cardRef.current,
-                scale: [1, 0.95, 1],
-                translateZ: [0, -30, 0],
-                rotateX: expanded ? [-5, 0] : [5, 0],
-                duration: 500,
+                scale: [1, 0.97, 1],
+                duration: 400,
                 easing: 'easeInOutQuad'
             });
         }
     };
 
     return (
-        <div className="clause-card glass-card preserve-3d element-3d" ref={cardRef} onClick={toggleExpand} style={{ cursor: 'pointer' }}>
+        <div className="clause-card glass-card card-3d" ref={cardRef} onClick={toggleExpand} style={{ cursor: 'pointer' }}>
             <div className="clause-card-header">
                 <span className="clause-id">
                     {clause.section_number ? `§${clause.section_number}` : `#${clause.id}`}
@@ -47,7 +46,7 @@ export default function ClauseCard({ clause, risks, explanations }) {
                 <div style={{ marginTop: '12px' }}>
                     {clauseExplanations.map((exp, i) => (
                         <div key={i} className="explanation-panel">
-                            <strong style={{ color: 'var(--accent-purple)' }}>{exp.risk_type?.replace(/_/g, ' ')}</strong>
+                            <strong style={{ color: 'var(--accent-teal)' }}>{exp.risk_type?.replace(/_/g, ' ')}</strong>
                             <p style={{ marginTop: '6px' }}>{exp.explanation}</p>
                             {exp.flagged_text && (
                                 <p style={{ marginTop: '8px', fontStyle: 'italic', color: 'var(--text-muted)' }}>
@@ -61,7 +60,9 @@ export default function ClauseCard({ clause, risks, explanations }) {
 
             {expanded && clauseRisks.length === 0 && (
                 <div className="explanation-panel" style={{ borderLeftColor: 'var(--risk-low)' }}>
-                    ✅ No risks detected in this clause.
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <IconCheck size={16} style={{ color: 'var(--risk-low)' }} /> No risks detected in this clause.
+                    </span>
                 </div>
             )}
         </div>

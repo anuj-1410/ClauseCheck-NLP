@@ -1,5 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+    IconUpload, IconBrain, IconSearch, IconBarChart, IconGlobe,
+    IconChat, IconCompare, IconTimeline, IconNegotiate, IconDownload,
+    IconWhatIf, IconAmbiguity, IconJurisdiction, IconShield
+} from '../components/Icons';
+import useScrollReveal from '../hooks/useScrollReveal';
 
 const API_URL = 'http://localhost:8000';
 
@@ -20,6 +26,21 @@ const STEPS = [
     'Finalizing report...',
 ];
 
+const FEATURES = [
+    { Icon: IconBrain, title: 'Plain English', desc: 'Every clause translated into simple, everyday language using AI.' },
+    { Icon: IconSearch, title: 'Risk Detection', desc: 'Identifies unlimited liability, one-sided terms, and hidden traps.' },
+    { Icon: IconBarChart, title: 'Compliance Scoring', desc: 'Jurisdiction-aware checks with legal references and 0–100 score.' },
+    { Icon: IconGlobe, title: 'Bilingual AI', desc: 'Analyzes contracts in English and Hindi with auto-detection.' },
+    { Icon: IconChat, title: 'Q&A Chatbot', desc: 'Ask anything about your contract and get instant, cited answers.' },
+    { Icon: IconCompare, title: 'Contract Compare', desc: 'Upload two versions to see exactly what changed.' },
+    { Icon: IconTimeline, title: 'Timeline View', desc: 'Every deadline, notice period, and payment date visualized.' },
+    { Icon: IconNegotiate, title: 'Negotiation AI', desc: 'Get actionable advice on how to renegotiate risky clauses.' },
+    { Icon: IconDownload, title: 'PDF Export', desc: 'Download professional reports to share with your team.' },
+    { Icon: IconWhatIf, title: 'What-If Analysis', desc: 'Modify clauses and predict the impact on risk.' },
+    { Icon: IconAmbiguity, title: 'Ambiguity Detection', desc: 'Flags passive voice, vague terms, and missing responsibilities.' },
+    { Icon: IconJurisdiction, title: 'Jurisdiction Aware', desc: 'Indian, US, UK, or international — law-specific analysis.' },
+];
+
 export default function UploadPage() {
     const [dragOver, setDragOver] = useState(false);
     const [processing, setProcessing] = useState(false);
@@ -30,6 +51,8 @@ export default function UploadPage() {
     const [options, setOptions] = useState(null);
     const inputRef = useRef(null);
     const navigate = useNavigate();
+
+    const featuresReveal = useScrollReveal({ staggerChildren: true, staggerDelay: 50, animation: 'tiltIn' });
 
     useEffect(() => {
         fetch(`${API_URL}/api/options`)
@@ -109,11 +132,11 @@ export default function UploadPage() {
                 <div className="container">
                     <section className="hero-section animate-in">
                         <div className="hero-badge">
-                            <span>🤖</span>
+                            <IconShield size={14} />
                             <span>AI-Powered Legal Intelligence Platform</span>
                         </div>
                         <h1 className="hero-title">
-                            Analyze Legal Contracts<br />with Confidence
+                            Analyze Legal Contracts<br />with <span className="accent">Confidence</span>
                         </h1>
                         <p className="hero-subtitle">
                             Upload your contract in English or Hindi. ClauseCheck detects risks,
@@ -162,13 +185,13 @@ export default function UploadPage() {
                         </div>
 
                         <div
-                            className={`upload-zone animate-slide-up delay-2 ${dragOver ? 'drag-over' : ''}`}
+                            className={`upload-zone animate-slide-up delay-2 perspective-parent ${dragOver ? 'drag-over' : ''}`}
                             onClick={() => inputRef.current?.click()}
                             onDrop={handleDrop}
                             onDragOver={handleDragOver}
                             onDragLeave={() => setDragOver(false)}
                         >
-                            <span className="upload-icon">📄</span>
+                            <div className="upload-icon"><IconUpload size={40} /></div>
                             <p className="upload-text">Drop your contract here or click to browse</p>
                             <p className="upload-subtext">Supports PDF, DOCX, TXT — up to 10MB</p>
                             <input
@@ -180,23 +203,10 @@ export default function UploadPage() {
                         {error && <div className="error-message" style={{ maxWidth: 600, margin: '20px auto' }}>{error}</div>}
                     </section>
 
-                    <section className="features-grid">
-                        {[
-                            { icon: '🧠', title: 'Plain English', desc: 'Every clause translated into simple, everyday language using AI.' },
-                            { icon: '🔍', title: 'Risk Detection', desc: 'Identifies unlimited liability, one-sided terms, and hidden traps.' },
-                            { icon: '📊', title: 'Compliance Scoring', desc: 'Jurisdiction-aware checks with legal references and 0–100 score.' },
-                            { icon: '🌐', title: 'Bilingual AI', desc: 'Analyzes contracts in English and Hindi with auto-detection.' },
-                            { icon: '💬', title: 'Q&A Chatbot', desc: 'Ask anything about your contract and get instant, cited answers.' },
-                            { icon: '📋', title: 'Contract Compare', desc: 'Upload two versions to see exactly what changed.' },
-                            { icon: '⏱️', title: 'Timeline View', desc: 'Every deadline, notice period, and payment date visualized.' },
-                            { icon: '🤝', title: 'Negotiation AI', desc: 'Get actionable advice on how to renegotiate risky clauses.' },
-                            { icon: '📥', title: 'PDF Export', desc: 'Download professional reports to share with your team.' },
-                            { icon: '🔮', title: 'What-If Analysis', desc: 'Modify clauses and predict the impact on risk.' },
-                            { icon: '🕵️', title: 'Ambiguity Detection', desc: 'Flags passive voice, vague terms, and missing responsibilities.' },
-                            { icon: '⚖️', title: 'Jurisdiction Aware', desc: 'Indian, US, UK, or international — law-specific analysis.' },
-                        ].map((f, i) => (
-                            <div key={i} className={`feature-card glass-card animate-slide-up delay-${(i % 5) + 1}`}>
-                                <span className="feature-icon">{f.icon}</span>
+                    <section className="features-grid" ref={featuresReveal.ref}>
+                        {FEATURES.map((f, i) => (
+                            <div key={i} className="feature-card glass-card card-3d perspective-parent">
+                                <div className="feature-icon"><f.Icon size={22} /></div>
                                 <h3>{f.title}</h3>
                                 <p>{f.desc}</p>
                             </div>

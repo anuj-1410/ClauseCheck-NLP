@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
+import ParticleBackground from './components/ParticleBackground';
 import UploadPage from './pages/UploadPage';
 import ResultsPage from './pages/ResultsPage';
 import HistoryPage from './pages/HistoryPage';
@@ -9,6 +10,7 @@ import ChatPage from './pages/ChatPage';
 export default function App() {
   return (
     <Router>
+      <ParticleBackground />
       <Header />
       <Routes>
         <Route path="/" element={<UploadPage />} />
