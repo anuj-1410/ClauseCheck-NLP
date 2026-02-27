@@ -3,9 +3,10 @@ import Header from './components/Header';
 import UploadPage from './pages/UploadPage';
 import ResultsPage from './pages/ResultsPage';
 import HistoryPage from './pages/HistoryPage';
-import './index.css';
+import ComparePage from './pages/ComparePage';
+import ChatPage from './pages/ChatPage';
 
-function App() {
+export default function App() {
   return (
     <Router>
       <Header />
@@ -13,9 +14,9 @@ function App() {
         <Route path="/" element={<UploadPage />} />
         <Route path="/results/:id" element={<ResultsPage />} />
         <Route path="/history" element={<HistoryPage />} />
+        <Route path="/compare" element={<ComparePage />} />
+        <Route path="/chat/:id" element={<ChatPage />} />
       </Routes>
     </Router>
   );
 }
-
-export default App;

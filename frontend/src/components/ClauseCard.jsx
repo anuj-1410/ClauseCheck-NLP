@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import RiskBadge from './RiskBadge';
+import anime from 'animejs';
 
 export default function ClauseCard({ clause, risks, explanations }) {
     const [expanded, setExpanded] = useState(false);
+    const cardRef = useRef(null);
 
     // Find risks for this clause
     const clauseRisks = risks.filter(r => r.clause_id === clause.id);
@@ -15,8 +17,22 @@ export default function ClauseCard({ clause, risks, explanations }) {
         }, 'low')
         : null;
 
+    const toggleExpand = () => {
+        setExpanded(!expanded);
+        if (cardRef.current) {
+            anime({
+                targets: cardRef.current,
+                scale: [1, 0.95, 1],
+                translateZ: [0, -30, 0],
+                rotateX: expanded ? [-5, 0] : [5, 0],
+                duration: 500,
+                easing: 'easeInOutQuad'
+            });
+        }
+    };
+
     return (
-        <div className="clause-card glass-card" onClick={() => setExpanded(!expanded)}>
+        <div className="clause-card glass-card preserve-3d element-3d" ref={cardRef} onClick={toggleExpand} style={{ cursor: 'pointer' }}>
             <div className="clause-card-header">
                 <span className="clause-id">
                     {clause.section_number ? `§${clause.section_number}` : `#${clause.id}`}
