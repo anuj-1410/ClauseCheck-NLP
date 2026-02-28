@@ -1,0 +1,60 @@
+# Deep Dive: ClauseCheck Logic & Indian Legal Integration
+
+This document explains the underlying logic of the four pillars of ClauseCheck's analysis and how they are specifically tailored to the **Indian Legal System**.
+
+---
+
+## 1. Risk Detection Logic (Pattern Matching + Severity)
+**The Problem**: How to identify "dangerous" clauses without an LLM?
+**The Logic**: 
+- **Pattern Matching**: The system uses a dedicated `RISK_PATTERNS` dictionary (in [risk_detector.py](file:///c:/anujDrive/NLP_Project/backend/services/risk_detector.py)) contains over 50 complex Regular Expressions (Regex). These patterns look for semantic markers of risk (e.g., `"unlimited\s+liability"`, `"without\s+notice"`).
+- **Severity Scoring**: Each match is assigned a base score (High: 8, Medium: 5, Low: 2).
+- **Aggregation**: The overall Risk Score (0-100) is calculated by normalizing the total found risk scores against the number of clauses, with a "boost" factor if multiple High-severity risks are found.
+
+---
+
+## 2. Compliance Logic (Weighted Checklist)
+**The Problem**: How to tell if a contract is "complete"?
+**The Logic**:
+- **Essential Clause Mapping**: The system maintains a checklist of "Essential Clauses" (e.g., Termination, Indemnity, Force Majeure).
+- **Weighted Scoring**: Each essential clause is assigned a "Weight" (Importance). For example, **Liability** and **Termination** have a weight of 10 (Critical), while **Notice** has a weight of 6 (Recommended).
+- **Detection**: It uses a keyword-proximity algorithm to see if these concepts are mentioned anywhere in the document.
+- **Formula**: [(Earned Weight / Total Possible Weight) * 100](file:///c:/anujDrive/NLP_Project/backend/main.py#103-121).
+
+---
+
+## 3. Ambiguity & Responsibility Logic (Syntactic Analysis)
+**The Problem**: How to find "traps" like vague wording or unclear responsibility?
+**The Logic**:
+- **Passive Voice Detection**: Uses Regex to find structures like `[modal] + be + [past participle]`. 
+    - *Example*: "The damage shall be repaired" (By whom? This is a trap).
+- **Vague Term Dictionary**: A curated list of "weasel words" like *reasonably*, *promptly*, *adequate*, and *as soon as practicable*.
+- **Missing Subject Analysis**: Scans sentences starting with modals but lacking a defined entity (Party) as the subject.
+
+---
+
+## 4. Jurisdiction Matching (The "Indian System" Implementation)
+**The Question**: Is it really using Indian Law?
+**The Logic**:
+- **Statutory Linkage**: In [jurisdiction_engine.py](file:///c:/anujDrive/NLP_Project/backend/services/jurisdiction_engine.py), the system maps specific risk types and compliance requirements to the **Indian Constitution and Statutes**.
+- **The "India" Module**:
+    - **Indian Contract Act, 1872**: Used for Liability (Sec 73), Indemnity (Sec 124-125), and Force Majeure (Sec 56).
+    - **Section 27 Logic**: Specifically flags Non-Compete clauses as High Risk in India (where they are generally void), unlike in some US states where they are enforceable.
+    - **IT Act, 2000 & DPDP Act, 2023**: Used for data privacy and confidentiality compliance.
+    - **Arbitration and Conciliation Act, 1996**: Used for Dispute Resolution compliance.
+
+### Is it "Really" according to the Indian System?
+**Yes, for three core reasons**:
+1.  **Specific Mapping**: The system doesn't just say "Term missing"; it says "Missing Termination Clause (Ref: Section 39-40, Indian Contract Act)".
+2.  **Bilingual Intelligence**: It recognizes that Indian contracts are often bilingual or use specific Hindi legal terminology (e.g., `धारा`, `अनुच्छेद`, `यथोचित`). The system uses **Stanza** (a Stanford NLP library) specifically trained for Hindi NER.
+3.  **Local Nuances**: It incorporates the **Doctrine of Frustration** (Section 56) for Force Majeure analysis, which is the specific standard used in Indian courts.
+
+---
+
+## Summary of Logic Types
+| Module | Logic Type | Real-World Basis |
+| :--- | :--- | :--- |
+| **Risk** | Pattern Recognition | Top 50 "Red Flags" in Corporate Law |
+| **Compliance** | Weighted Audit | Standard Legal Audit Checklists |
+| **Ambiguity** | Computational Linguistics | Grammar & Lexical Heuristics |
+| **Jurisdiction** | Knowledge Mapping | **Indian Contract Act, IT Act, etc.** |

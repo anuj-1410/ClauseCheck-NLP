@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import ScoreGauge from '../components/ScoreGauge';
 import ClauseCard from '../components/ClauseCard';
+import Dashboard from '../components/Dashboard';
 import {
     IconClause, IconLightbulb, IconSearch, IconAmbiguity, IconTimeline,
     IconUsers, IconPin, IconCheck, IconWhatIf, IconChat, IconDownload,
     IconPlus, IconFile, IconGlobe, IconScale, IconCompare, IconTarget,
-    IconCalendar, IconDollar, IconDot, IconArrowDown, IconNegotiate
+    IconCalendar, IconDollar, IconDot, IconArrowDown, IconNegotiate, IconX
 } from '../components/Icons';
 
 const API_URL = 'http://localhost:8000';
@@ -135,14 +135,8 @@ export default function ResultsPage() {
                     </div>
                 </div>
 
-                {/* Scores */}
-                <div className="scores-grid">
-                    <ScoreGauge score={result.risk_score} label="Risk Score" color={riskColor} />
-                    <ScoreGauge score={result.compliance_score} label="Compliance Score" color={complianceColor} />
-                    {responsibility.ambiguity_score !== undefined && (
-                        <ScoreGauge score={responsibility.ambiguity_score} label="Ambiguity Score" color={responsibility.ambiguity_score > 50 ? '#fbbf24' : '#4ade80'} />
-                    )}
-                </div>
+                {/* ── Premium Dashboard ── */}
+                <Dashboard result={result} risks={risks} compliance={compliance} responsibility={responsibility} />
 
                 {/* Summary */}
                 <div className="summary-section glass-card animate-slide-up delay-2">

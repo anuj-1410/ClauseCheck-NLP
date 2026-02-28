@@ -1,0 +1,120 @@
+# ClauseCheck Backend & NLP Architecture Analysis
+
+ClauseCheck v2.0 is a sophisticated bilingual (English & Hindi) legal contract analyzer. It uses a hybrid NLP approach combining **large language models (LLMs)** with **deterministic rule-based systems** and **classical NLP libraries**.
+
+## 🏗️ Backend Architecture
+The backend is built using **FastAPI**, following a service-oriented architecture.
+- **Web Framework**: FastAPI (Asynchronous, Type-safe)
+- **Database**: Supabase (PostgreSQL + Auth)
+- **OCR Engine**: Tesseract (via `pytesseract`)
+- **NLP Core**: SpaCy (English) & Stanza (Hindi)
+- **LLM Engine**: Groq (Llama 3 70B)
+- **Reporting**: ReportLab (PDF)
+
+---
+
+## 🌊 Backend Working Flow
+When a document is uploaded to `/api/analyze`, the following pipeline executes:
+
+```mermaid
+graph TD
+    A[Upload File] --> B[Document Parsing/OCR]
+    B --> C[Language Detection]
+    C --> D[Clause Segmentation]
+    D --> E[Feature Extraction]
+    E --> F[Compliance & Risk Logic]
+    F --> G[LLM Enrichment]
+    G --> H[Storage & Response]
+```
+
+1.  **Ingestion**: Files (PDF/Docx) are parsed. Scanned PDFs are automatically routed to the OCR engine.
+2.  **Preprocessing**: The system detects if the text is English or Hindi and segments it into logical clauses.
+3.  **Extraction**: Entities (Parties, Dates, Money) are extracted using hybrid NER.
+4.  **Analysis**: Clauses are checked for obligations, risks, and compliance against jurisdictional rules.
+5.  **Intelligence**: LLMs simplify complex jargon and generate smart summaries.
+
+---
+
+## 🧠 NLP Tasks Deep Dive (Step-by-Step)
+
+Here is every NLP task performed in the system, mapped to the backend workflow and the techniques used:
+
+### 1. Optical Character Recognition (OCR)
+- **Task**: Transforming images/scanned PDFs into machine-readable text.
+- **How**: Uses **Tesseract OCR** (via `pytesseract`) and `pdf2image` for pre-conversion.
+- **Type**: Classical Vision-to-Text.
+
+### 2. Language Detection
+- **Task**: Identifying the document's language (Bilingual support for English & Hindi).
+- **How**: Uses the **`langdetect`** library with deterministic seeding.
+- **Type**: Statistical Profile-based classification.
+
+### 3. Clause Segmentation
+- **Task**: Breaking the document into discrete "clauses" for individual analysis.
+- **How**: Hybrid logic using **Complex Regex** for legal numbering (e.g., `r"(?:^|\n)\s*(\d+(?:\.\d+)*)\s*[\.:\)]\s*"`) and sentence-boundary detection as a fallback.
+- **Type**: Rule-based Chunking.
+
+### 4. Named Entity Recognition (NER)
+- **Task**: Extracting Parties (People/Orgs), Dates, Money, and Law references.
+- **How**: Uses **SpaCy (en_core_web_sm)** for English and **Stanza (Hindi Pipeline)** for Hindi. Supplemental **Regex Patterns** are used to "enrich" entities like INR/USD currency formats and Indian Act names.
+- **Type**: Deep Learning (CNN/Transformers) + Pattern Matching.
+
+### 5. Obligation Detection
+- **Task**: Detecting mandatory, recommended, and optional responsibilities.
+- **How**: **Keyword Spotting** (Modal Verbs: "shall", "must", "may") combined with **Heuristic Proximity Logic** to identify the "Who" (Party) and "What" (Action).
+- **Type**: Linguistic Logic / Modal Logic Analysis.
+
+### 6. Risk Detection
+- **Task**: Flagging "Red Flag" clauses (e.g., Unlimited Liability, At-will termination).
+- **How**: Exhaustive **Regex Dictionaries** mapped to severity scores. It scans for 50+ specific semantic patterns in both English and Hindi.
+- **Type**: Deterministic Pattern Recognition.
+
+### 7. Global Compliance Scoring
+- **Task**: Calculating how "standard" a contract is.
+- **How**: **Weighted Keyword Checklists**. It scans the entire document for "Essential Clauses" (Termination, Governing Law, etc.) and computes a score from 0-100 based on their importance weights.
+- **Type**: Deterministic Calculation.
+
+### 8. Responsibility & Ambiguity Analysis
+- **Task**: Finding "drafting traps" like passive voice or vague wording.
+- **How**: **Regex for Passive Voice structures** (e.g., `be + [verb]ed`) and a **Dictionary of Vague Terms** (e.g., "reasonably", "promptly").
+- **Type**: Syntactic & Lexical Analysis.
+
+### 9. Timeline & Deadline Extraction
+- **Task**: Mapping out all dates and notice periods.
+- **How**: **Regex for Temporal Relationships** (e.g., "within X days of Y"). It links extracted dates to specific obligations.
+- **Type**: Relation Extraction.
+
+### 10. Extractive Summarization (Fallback)
+- **Task**: Creating a summary when the LLM is unavailable.
+- **How**: **Custom TF-IDF implementation**. It tokenizes, filters stopwords, calculates word frequencies, and ranks sentences.
+- **Type**: Statistical Natural Language Processing.
+
+### 11. Plain English Translation
+- **Task**: Explaining "Legalese" in simple terms.
+- **How**: **LLM Prompt Engineering** via Groq (Llama 3 70B) using a "Legal Simplifier" system prompt.
+- **Type**: Generative AI / Text-to-Text Generation.
+
+### 12. Generative Smart Summary
+- **Task**: Creating a conceptual overview of the document.
+- **How**: **Abstractive Summarization** via LLM, constrained to a structured bullet-point format.
+- **Type**: Generative AI.
+
+### 13. Contract Comparison (Contract Diff)
+- **Task**: Comparing two versions of a contract.
+- **How**: **SequenceMatcher (Ratcliff/Obershelp algorithm)** to match clauses and word-level **Opcode diffing** to highlight additions/deletions.
+- **Type**: Text Similarity / Sequence Alignment.
+
+### 14. Jurisdiction-Aware Contextual Mapping
+- **Task**: Linking findings to specific local laws.
+- **How**: **Dictionary-based logic mapping** findings to a JSON store of 100+ legal references (Section 27 of Indian Contract Act, etc.).
+- **Type**: Knowledge-base Mapping.
+
+---
+
+## 🔍 Key Services Overview
+- [document_parser.py](file:///c:/anujDrive/NLP_Project/backend/services/document_parser.py): Handles file extraction.
+- [clause_segmenter.py](file:///c:/anujDrive/NLP_Project/backend/services/clause_segmenter.py): Splits text into analyzed chunks.
+- [entity_extractor.py](file:///c:/anujDrive/NLP_Project/backend/services/entity_extractor.py): Identifies parties and dates.
+- [risk_detector.py](file:///c:/anujDrive/NLP_Project/backend/services/risk_detector.py): Uses 50+ patterns to find "red flags".
+- [compliance_checker.py](file:///c:/anujDrive/NLP_Project/backend/services/compliance_checker.py): Scores the document based on missing essential clauses.
+- [llm_service.py](file:///c:/anujDrive/NLP_Project/backend/services/llm_service.py): Orchestrates calls to Groq Cloud for AI features.
