@@ -37,5 +37,5 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 # ──────────────────────────────────────────────
 # NLP Model Flags
 # ──────────────────────────────────────────────
-SPACY_MODEL = "en_core_web_sm"
+SPACY_MODEL = "en_core_web_trf"  # Falls back to en_core_web_sm if not installed
 STANZA_LANG = "hi"

@@ -1,0 +1,275 @@
+🧠 1️⃣ en_core_web_trf (spaCy Transformer Model)
+📍 Used In:
+
+entity_extractor.py
+
+obligation_detector.py
+
+responsibility_detector.py
+
+🎯 Purpose:
+
+This model is used for:
+
+Tokenization
+
+POS tagging
+
+Named Entity Recognition (NER)
+
+Dependency parsing
+
+It provides contextual embeddings internally using a transformer (RoBERTa).
+
+❓ Why It Was Added
+
+Because transformer models:
+
+Improve NER accuracy
+
+Improve dependency parsing quality
+
+Understand context better
+
+⚠ Reality Check
+
+In YOUR system, you are NOT using:
+
+Transformer embeddings from spaCy
+
+Deep contextual NER features
+
+Advanced transformer layers for semantic tasks
+
+You are mostly using:
+
+Dependency labels (nsubj, dobj)
+
+Basic entity labels
+
+Token-level parsing
+
+For this, en_core_web_sm is already sufficient.
+
+🧨 Why It’s Unnecessary
+
+Because:
+You already use sentence-transformers for semantic understanding.
+
+Loading:
+
+spaCy transformer
+
+sentence-transformer model
+
+= duplicate transformer stacks.
+
+✅ Conclusion
+
+Purpose: General NLP pipeline
+Reality: Overkill for your use case
+Action: Replace with en_core_web_sm
+
+🧠 2️⃣ paraphrase-multilingual-mpnet-base-v2
+📍 Used In:
+
+risk_detector.py
+
+contract_comparator.py
+
+🎯 Purpose:
+
+Semantic similarity detection.
+
+It converts sentences into vector embeddings so you can:
+
+Detect paraphrased risks
+
+Compare clauses semantically
+
+Detect changes between versions
+
+Match Hindi ↔ English meaning
+
+❓ Why It Was Added
+
+Because regex cannot detect paraphrased risks.
+
+Example:
+
+Clause:
+“The consultant shall bear unlimited financial responsibility.”
+
+Prototype:
+“Unlimited liability clause.”
+
+Regex fails.
+Embedding similarity succeeds.
+
+⚠ Why It’s Heavy
+
+MPNet is a large transformer model.
+~400–500MB
+Slower inference
+High RAM
+
+🧠 Is It Necessary?
+
+YES — semantic embedding is necessary.
+
+But this specific large model is not necessary.
+
+✅ Replace With:
+
+paraphrase-multilingual-MiniLM-L12-v2
+
+Purpose stays same.
+Much lighter.
+Faster.
+
+
+3. Clause Segmenter — ✅ Very Strong Now
+
+📄 
+
+clause_segmenter
+
+What You Did Right
+
+English numbering patterns
+
+Hindi numbering patterns (धारा, अनुच्छेद, खंड)
+
+Section-first strategy
+
+Fallback to sentence segmentation
+
+Short-clause merge logic
+
+Verdict
+
+✔ Architecturally correct
+✔ Bilingual
+✔ Layout-aware friendly
+
+Minor Improvement
+
+Your duplicate boundary filter uses:
+
+if b["start"] - filtered[-1]["start"] > 20
+
+That 20-char heuristic is fragile.
+
+Better:
+Check actual overlap using range intersection.
+
+But overall:
+9/10 — solid
+
+4. Compliance Checker — ⭐ Major Upgrade Achieved
+
+📄 
+
+compliance_checker
+
+What You Improved
+
+Structural validation
+
+Clause quality checks
+
+Hindi structural validation
+
+Weight-based scoring
+
+This is a BIG improvement.
+
+Now compliance = presence × structure.
+
+⚠ Remaining Issue
+
+Structural checks still rely on regex.
+
+Example:
+Notice detection:
+
+notice of \d+ days
+
+If phrased differently:
+“Thirty days prior written notice”
+
+May fail.
+
+Suggested Upgrade
+
+Add embedding similarity for structural elements too.
+
+But current version:
+8.5/10 — strong for rule-based
+
+5. Contract Comparator — 🔥 Excellent Upgrade
+
+📄 
+
+contract_comparator
+
+What You Did Right
+
+Multilingual embedding model
+
+Lazy loading
+
+Lexical fallback
+
+Risk delta + compliance delta
+
+Power shift messaging
+
+This is architecturally mature.
+
+⚠ Only Concern
+
+Your thresholds:
+
+SIMILARITY_THRESHOLD = 0.4
+SEMANTIC_THRESHOLD = 0.55
+
+0.55 is quite low for semantic similarity.
+
+You may get false matches.
+
+Better:
+0.70–0.75 for legal text.
+
+But design-wise:
+9/10 — production-ready
+
+
+6. Risk Detector — 🔥 This Is Strong
+
+📄 
+
+risk_detector
+
+You now:
+
+Regex detection
+
+Semantic similarity
+
+Multilingual embeddings
+
+Cross-lingual support
+
+This is exactly what I recommended.
+
+⚠ One Optimization
+
+You didn’t mention similarity threshold tuning in file.
+
+If threshold too low → false positives.
+
+Tune carefully.
+
+But architecture:
+9.5/10

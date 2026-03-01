@@ -1,20 +1,34 @@
 """
 ClauseCheck – Summarization Service
-Generates concise document summaries using extractive summarization.
+Generates concise document summaries.
+
+Primary: LLM summarization (handled in analyze.py)
+Fallback: TextRank (graph-based extractive summarization)
+
+Upgrade: Replaced TF-IDF with TextRank for better extractive summaries.
 """
 
 import re
 import logging
-import math
-from collections import Counter
 from typing import List
 
 logger = logging.getLogger(__name__)
 
+# Try to use networkx for TextRank
+_HAS_NETWORKX = False
+try:
+    import networkx as nx
+    _HAS_NETWORKX = True
+except ImportError:
+    logger.info("networkx not installed. Using basic scoring fallback.")
+
 
 def summarize_document(text: str, num_sentences: int = 5) -> str:
     """
-    Generate an extractive summary of the document using TF-IDF scoring.
+    Generate an extractive summary of the document.
+
+    Uses TextRank (graph-based) for better sentence selection.
+    Falls back to positional scoring if networkx unavailable.
 
     Args:
         text: Full document text
@@ -31,18 +45,12 @@ def summarize_document(text: str, num_sentences: int = 5) -> str:
     if len(sentences) <= num_sentences:
         return text.strip()
 
-    # Calculate TF-IDF scores for sentences
-    scores = _score_sentences(sentences)
+    if _HAS_NETWORKX:
+        summary = _textrank_summarize(sentences, num_sentences)
+    else:
+        summary = _positional_summarize(sentences, num_sentences)
 
-    # Select top-scoring sentences while maintaining order
-    indexed_scores = list(enumerate(scores))
-    indexed_scores.sort(key=lambda x: x[1], reverse=True)
-    top_indices = sorted([idx for idx, _ in indexed_scores[:num_sentences]])
-
-    summary_sentences = [sentences[i] for i in top_indices]
-    summary = " ".join(summary_sentences)
-
-    logger.info(f"Generated summary: {len(summary_sentences)} sentences from {len(sentences)} total.")
+    logger.info(f"Generated summary: {num_sentences} sentences from {len(sentences)} total.")
     return summary
 
 
@@ -53,50 +61,88 @@ def _split_sentences(text: str) -> List[str]:
     return [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
 
 
-def _score_sentences(sentences: List[str]) -> List[float]:
-    """Calculate TF-IDF-based importance score for each sentence."""
-    # Tokenize all sentences
-    word_lists = [_tokenize(s) for s in sentences]
-    all_words = [w for wl in word_lists for w in wl]
+def _textrank_summarize(sentences: List[str], num_sentences: int) -> str:
+    """
+    TextRank-based extractive summarization.
+    Builds a sentence similarity graph and ranks by PageRank.
+    """
+    import numpy as np
 
-    # Term frequency across document
-    doc_tf = Counter(all_words)
-    num_sentences = len(sentences)
+    n = len(sentences)
+    if n <= num_sentences:
+        return " ".join(sentences)
 
-    # Document frequency (how many sentences contain each word)
-    df = Counter()
-    for wl in word_lists:
-        for word in set(wl):
-            df[word] += 1
+    # Tokenize sentences
+    word_sets = [set(_tokenize(s)) for s in sentences]
 
-    # Score each sentence
+    # Build similarity matrix
+    sim_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if not word_sets[i] or not word_sets[j]:
+                continue
+            # Jaccard-like similarity
+            intersection = word_sets[i] & word_sets[j]
+            union = word_sets[i] | word_sets[j]
+            if union:
+                sim = len(intersection) / len(union)
+                sim_matrix[i][j] = sim
+                sim_matrix[j][i] = sim
+
+    # Build graph
+    graph = nx.from_numpy_array(sim_matrix)
+
+    # Run PageRank
+    try:
+        scores = nx.pagerank(graph, max_iter=200)
+    except Exception:
+        # Fallback if PageRank fails (e.g., disconnected graph)
+        scores = {i: 1.0 for i in range(n)}
+
+    # Boost first and last sentences (important in legal docs)
+    scores[0] = scores.get(0, 0) * 1.5
+    if n - 1 in scores:
+        scores[n - 1] = scores[n - 1] * 1.2
+    for i in range(1, min(3, n)):
+        scores[i] = scores.get(i, 0) * 1.1
+
+    # Select top-scoring sentences while maintaining document order
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top_indices = sorted([idx for idx, _ in ranked[:num_sentences]])
+
+    summary_sentences = [sentences[i] for i in top_indices]
+    return " ".join(summary_sentences)
+
+
+def _positional_summarize(sentences: List[str], num_sentences: int) -> str:
+    """
+    Basic positional summarization fallback.
+    Selects sentences based on position (first, last) and length.
+    """
+    n = len(sentences)
     scores = []
-    for i, words in enumerate(word_lists):
-        if not words:
-            scores.append(0.0)
-            continue
 
-        # TF-IDF score
+    for i, sent in enumerate(sentences):
         score = 0.0
-        for word in words:
-            tf = words.count(word) / len(words)
-            idf = math.log(num_sentences / (df[word] + 1)) + 1
-            score += tf * idf
+        words = _tokenize(sent)
+        # Longer sentences tend to be more informative
+        score += min(len(words) / 20.0, 1.0)
 
-        # Normalize by sentence length
-        score /= len(words)
-
-        # Boost first and last sentences (usually important in legal docs)
+        # Position boost
         if i == 0:
-            score *= 1.5
-        elif i == num_sentences - 1:
-            score *= 1.2
+            score += 2.0
+        elif i == n - 1:
+            score += 1.5
         elif i < 3:
-            score *= 1.1
+            score += 1.0
 
-        scores.append(score)
+        scores.append((i, score))
 
-    return scores
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top_indices = sorted([idx for idx, _ in scores[:num_sentences]])
+
+    summary_sentences = [sentences[i] for i in top_indices]
+    return " ".join(summary_sentences)
 
 
 def _tokenize(text: str) -> List[str]:

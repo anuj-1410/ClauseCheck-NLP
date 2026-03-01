@@ -1,6 +1,10 @@
 """
 ClauseCheck – Jurisdiction-Aware Compliance Engine
 Adapts compliance rules and legal references based on selected jurisdiction.
+
+Upgrades:
+  - Added adjust_risk_severity() for dynamic risk severity adjustment
+  - Risk severity is now jurisdiction-aware (e.g., non-compete in India → high)
 """
 
 import logging
@@ -113,6 +117,64 @@ JURISDICTIONS = {
 }
 
 # ──────────────────────────────────────────────
+# Dynamic risk severity adjustments per jurisdiction
+# ──────────────────────────────────────────────
+JURISDICTION_RISK_ADJUSTMENTS = {
+    "india": {
+        "non_compete_broad": {
+            "adjusted_severity": "high",
+            "reason": "Non-compete clauses are generally void under Section 27 of Indian Contract Act. High risk of unenforceability.",
+        },
+        "unlimited_liability": {
+            "adjusted_severity": "high",
+            "reason": "Courts may reduce penalty under Section 74, but unlimited liability poses significant risk.",
+        },
+        "exclusive_jurisdiction": {
+            "adjusted_severity": "low",
+            "reason": "Indian courts retain protective jurisdiction regardless of contractual clause.",
+        },
+        "auto_renewal": {
+            "adjusted_severity": "medium",
+            "reason": "Auto-renewal is generally valid but must be clearly communicated.",
+        },
+    },
+    "us": {
+        "non_compete_broad": {
+            "adjusted_severity": "medium",
+            "reason": "Enforceability varies by state. California bans most non-competes; other states may enforce if reasonable.",
+        },
+        "unlimited_liability": {
+            "adjusted_severity": "high",
+            "reason": "US courts may enforce unlimited liability unless unconscionable.",
+        },
+        "auto_renewal": {
+            "adjusted_severity": "medium",
+            "reason": "Many states require advance cancellation notice. Check state-specific laws.",
+        },
+        "waiver_of_rights": {
+            "adjusted_severity": "high",
+            "reason": "Broad waivers may be challenged as unconscionable but can be enforced.",
+        },
+    },
+    "uk": {
+        "non_compete_broad": {
+            "adjusted_severity": "medium",
+            "reason": "Must be reasonable in scope, duration, and geography to be enforceable under UK common law.",
+        },
+        "unlimited_liability": {
+            "adjusted_severity": "high",
+            "reason": "UCTA 1977 restricts exclusion of liability for negligence causing personal injury.",
+        },
+        "exclusive_jurisdiction": {
+            "adjusted_severity": "low",
+            "reason": "Generally enforceable but may be challenged under consumer protection laws.",
+        },
+    },
+    "general": {},
+}
+
+
+# ──────────────────────────────────────────────
 # Contract type-specific focus areas
 # ──────────────────────────────────────────────
 CONTRACT_TYPES = {
@@ -169,3 +231,46 @@ def get_legal_references(jurisdiction: str, risk_type: str) -> str:
     """Get applicable legal reference for a risk type within a jurisdiction."""
     j = JURISDICTIONS.get(jurisdiction.lower(), JURISDICTIONS["general"])
     return j.get("risk_notes", {}).get(risk_type, "")
+
+
+def adjust_risk_severity(
+    risks: List[Dict],
+    jurisdiction: str = "general"
+) -> List[Dict]:
+    """
+    Dynamically adjust risk severity based on jurisdiction context.
+
+    For example:
+      - Non-compete in India → High risk (Section 27 makes it largely void)
+      - Non-compete in US → Medium risk (varies by state)
+      - Non-compete in General → Keep original severity
+
+    Adds 'jurisdiction_note' to each adjusted risk.
+    """
+    adjustments = JURISDICTION_RISK_ADJUSTMENTS.get(
+        jurisdiction.lower(), {}
+    )
+
+    if not adjustments:
+        return risks
+
+    for risk in risks:
+        risk_type = risk.get("risk_type", "")
+        if risk_type in adjustments:
+            adjustment = adjustments[risk_type]
+            original_severity = risk.get("severity", "medium")
+            new_severity = adjustment["adjusted_severity"]
+
+            risk["original_severity"] = original_severity
+            risk["severity"] = new_severity
+            risk["jurisdiction_note"] = adjustment["reason"]
+
+            # Recalculate risk score based on new severity
+            risk["risk_score"] = {"high": 8, "medium": 5, "low": 2}.get(new_severity, 5)
+
+            logger.debug(
+                f"Risk '{risk_type}' severity: {original_severity} → {new_severity} "
+                f"(jurisdiction: {jurisdiction})"
+            )
+
+    return risks

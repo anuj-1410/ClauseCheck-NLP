@@ -27,7 +27,7 @@ from services.timeline_extractor import extract_timeline
 from services.jurisdiction_engine import (
     get_jurisdiction_rules, get_contract_type_info,
     get_available_jurisdictions, get_available_contract_types,
-    get_legal_references,
+    get_legal_references, adjust_risk_severity,
 )
 from services.llm_service import (
     translate_to_plain_english, generate_smart_summary, is_available as llm_available
@@ -128,6 +128,8 @@ async def analyze_document(
         # Add confidence scores to risks
         for r in risks:
             r["confidence"] = _calculate_risk_confidence(r)
+        # Adjust risk severity based on jurisdiction
+        risks = adjust_risk_severity(risks, jurisdiction or "general")
         risk_score = calculate_overall_risk_score(risks)
 
         # ── Step 9: Jurisdiction-aware compliance ──
@@ -200,6 +202,8 @@ async def analyze_document(
                     "risk_score": r["risk_score"],
                     "confidence": r.get("confidence", 0.7),
                     "legal_note": r.get("legal_note", ""),
+                    "detection_method": r.get("detection_method", "pattern"),
+                    "jurisdiction_note": r.get("jurisdiction_note", ""),
                 }
                 for r in risks
             ],

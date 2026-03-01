@@ -1,0 +1,437 @@
+1️⃣ DOCUMENT PARSER — ✅ Good
+
+document_parser
+
+Strength:
+
+Clean PDF detection logic
+
+Smart OCR trigger (<50 chars)
+
+Multi-format support
+
+Improvement:
+
+Add layout-aware PDF parsing (pdfplumber instead of PyPDF2)
+
+Preserve headings & numbering (currently lost)
+
+Extract section numbers explicitly
+
+Why?
+Clause segmentation becomes more accurate.
+
+Works for:
+✔ English contracts
+✔ Hindi contracts (Unicode-safe)
+
+2️⃣ LANGUAGE DETECTION — ⚠ Upgrade for Mixed EN + HI
+Current Problem
+
+langdetect unstable for mixed text.
+
+🔥 Upgrade
+Step 1: Script Ratio Detection
+
+Count Devanagari characters:
+
+If:
+
+Devanagari chars > 30%
+
+→ Hindi
+
+This is deterministic.
+
+Step 2: Add fastText Language Model
+
+Use:
+
+lid.176.bin
+
+Better at mixed-language detection.
+
+Final Logic
+
+Script detection
+
+fastText validation
+
+Fallback to langdetect
+
+Improvement
+
+Mixed Hindi-English contracts correctly classified.
+
+3️⃣ ENTITY EXTRACTOR — ⚠ Medium Level
+
+entity_extractor
+
+Good:
+
+Lazy loading
+
+Regex enrichment
+
+Separate Hindi pipeline
+
+Limitations:
+
+Using en_core_web_sm → weak legal NER
+
+LAW label in spaCy small model is poor
+
+No custom training
+
+Upgrade Path:
+
+🔥 English Upgrade
+Use en_core_web_trf (transformer-based)
+
+🔥 Hindi Upgrade
+There is no strong Legal Hindi NER model.
+
+So build hybrid system:
+
+Layer 1:
+
+Stanza NER
+
+Layer 2:
+
+Regex for:
+
+धारा 74
+
+अधिनियम
+
+अनुच्छेद
+
+भारतीय अनुबंध अधिनियम
+
+Layer 3:
+
+Legal Gazetteer Dictionary
+
+Example:
+
+[
+"भारतीय अनुबंध अधिनियम, 1872",
+"सूचना प्रौद्योगिकी अधिनियम, 2000",
+"उपभोक्ता संरक्षण अधिनियम, 2019"
+]
+
+4️⃣ OBLIGATION DETECTOR — ⚠ Surface-Level
+
+obligation_detector
+
+Current approach:
+
+Modal word matching
+
+Regex sentence split
+
+Extract strength
+
+Problem:
+You are NOT using dependency parsing.
+
+So:
+
+You cannot reliably detect:
+
+Who is the subject
+
+What exactly is the action
+
+Power imbalance
+
+Upgrade:
+
+Use spaCy dependency tree:
+
+Extract:
+nsubj
+ROOT verb
+dobj
+
+🔥 English Upgrade
+
+Use spaCy dependency parsing:
+
+Extract:
+
+nsubj
+
+ROOT
+
+dobj
+
+Build structured obligation object.
+
+🔥 Hindi Upgrade
+
+Use Stanza dependency parsing:
+
+Detect:
+
+Subject (nsubj)
+
+Verb
+
+Object
+
+Handle passive forms like:
+
+किया जाएगा
+
+किया गया
+
+किया जाना चाहिए
+
+Improvement
+
+You now detect:
+
+Power imbalance
+
+One-sided authority
+
+Mutual vs unilateral obligations
+
+Works in both languages.
+
+5️⃣ RISK DETECTOR — ⚠ Heavily Regex-Based
+
+risk_detector
+
+Strength:
+
+Clean category structure
+
+Severity tagging
+
+Hindi support
+
+Weakness:
+
+Fully pattern-based
+
+No semantic similarity
+
+Cannot detect paraphrased risks
+
+Example it will miss:
+"The consultant shall bear responsibility without limitation."
+
+Upgrade Required:
+
+Use multilingual embedding model:
+
+sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+How It Works
+
+Define risk prototype in English.
+
+Encode clause (Hindi or English).
+
+Compute similarity.
+
+If similarity > threshold → flag.
+
+This works cross-lingually.
+
+Hindi clause:
+
+“बिना सीमा के दायित्व”
+
+English prototype:
+
+“Unlimited liability without cap.”
+
+They match semantically.
+
+Result
+
+Risk detection now meaning-based, not word-based.
+
+6️⃣ RESPONSIBILITY & AMBIGUITY DETECTOR — ⭐ Strong
+
+responsibility_detector
+
+This is actually one of your strongest modules.
+
+You detect:
+
+Passive voice
+
+Vague terms
+
+Missing subjects
+
+That’s very good.
+
+Upgrade:
+Use spaCy dependency to detect passive (nsubjpass) instead of regex.
+
+🔥 English Upgrade
+Use:
+token.dep_ == "nsubjpass"
+
+🔥 Hindi Upgrade
+Use Stanza:
+Detect passive constructions like:
+
+गया
+
+की गई
+
+किया जाएगा
+
+Use dependency labels, not regex only.
+
+7️⃣ COMPLIANCE ENGINE — ⚠ Presence-Based Only
+
+compliance_checker
+
+Current model:
+Check if keywords exist → mark clause present.
+
+Problem:
+Presence ≠ quality.
+
+Example:
+Termination clause exists but:
+"No notice required"
+
+Still considered compliant.
+
+Upgrade:
+
+After clause detection:
+Validate quality.
+
+Example for termination:
+
+Is notice period defined?
+
+Is termination mutual?
+
+Is duration specified?
+
+Turn compliance into structural validation, not keyword presence.
+
+🔥 English Structural Validation
+
+For termination clause:
+
+Notice defined?
+
+Mutual?
+
+Cure period?
+
+Grounds specified?
+
+🔥 Hindi Structural Validation
+
+Check for:
+
+सूचना अवधि
+
+कारण
+
+पारस्परिक अधिकार
+
+अवधि
+
+Now compliance = quality-based, not presence-based.
+
+8️⃣ JURISDICTION ENGINE — ⭐ Very Good
+
+jurisdiction_engine
+
+This is strong architecture.
+
+But currently:
+It is static mapping.
+
+Upgrade:
+Make risk severity jurisdiction-aware.
+
+Example:
+Non-compete in India → High risk
+Non-compete in US → Medium risk (depends state)
+
+Add dynamic severity adjustment.
+
+9️⃣ CONTRACT COMPARATOR — ⚠ Weak Matching Logic
+
+contract_comparator
+
+Current:
+SequenceMatcher similarity threshold 0.4
+
+Problem:
+This is lexical similarity only.
+
+Two clauses meaning same but paraphrased:
+Will show modified.
+
+Upgrade:
+Multilingual embeddings.
+
+Now:
+
+Hindi ↔ Hindi
+English ↔ English
+Even Hindi ↔ English
+
+Semantic diff works.
+
+🔟 SUMMARIZER — ⚠ Academic-Level Only
+
+summarizer
+
+You built TF-IDF extractive summary.
+
+Problem:
+Legal contracts need:
+Section-level summary
+Not generic TF-IDF
+
+Upgrade:
+
+use same llm summarization as using now but change the fallback mechanisma to TextRank
+
+1️⃣1️⃣ TIMELINE EXTRACTOR — ⭐ Good Utility
+
+timeline_extractor
+
+Nice regex coverage.
+
+Upgrade:
+Normalize extracted dates to actual datetime objects.
+Right now, they are raw strings.
+
+Add Hindi patterns:
+
+Dates:
+
+\d{1,2}\s+(जनवरी|फ़रवरी|मार्च...)
+
+Deadlines:
+
+के भीतर
+
+से पहले
+
+तक
+
+Normalize to datetime objects for both language.
+
+This allows:
+
+Timeline sorting
+
+Gantt visualization

@@ -2,11 +2,18 @@
 ClauseCheck – Contract Comparison Service
 Compares two legal documents clause-by-clause, detects changes,
 and computes risk deltas.
+
+Upgrades:
+  - Replaced SequenceMatcher with multilingual sentence-transformer embeddings
+  - Semantic clause matching: Hindi↔Hindi, English↔English, Hindi↔English
+  - SequenceMatcher kept as fallback if embeddings unavailable
 """
 
 import logging
 from difflib import SequenceMatcher
 from typing import List, Dict, Any, Tuple
+
+import numpy as np
 
 from services.clause_segmenter import segment_clauses
 from services.risk_detector import detect_risks, calculate_overall_risk_score
@@ -15,6 +22,26 @@ from services.compliance_checker import check_compliance
 logger = logging.getLogger(__name__)
 
 SIMILARITY_THRESHOLD = 0.4  # Below this = completely different clauses
+SEMANTIC_THRESHOLD = 0.55   # Semantic similarity threshold
+
+# Lazy-loaded semantic model
+_embed_model = None
+
+
+def _get_embedding_model():
+    """Lazy-load sentence-transformer model for semantic comparison."""
+    global _embed_model
+    if _embed_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _embed_model = SentenceTransformer(
+                "paraphrase-multilingual-mpnet-base-v2"
+            )
+            logger.info("Semantic model loaded for contract comparison.")
+        except Exception as e:
+            logger.warning(f"Failed to load semantic model: {e}. Using lexical fallback.")
+            _embed_model = False  # Mark as failed
+    return _embed_model if _embed_model is not False else None
 
 
 def compare_contracts(
@@ -47,7 +74,7 @@ def compare_contracts(
     compliance1 = check_compliance(clauses1, text1, language)
     compliance2 = check_compliance(clauses2, text2, language)
 
-    # Match clauses between documents
+    # Match clauses between documents (semantic or lexical)
     matches = _match_clauses(clauses1, clauses2)
 
     added = []
@@ -134,7 +161,72 @@ def compare_contracts(
 def _match_clauses(
     clauses1: List[Dict], clauses2: List[Dict]
 ) -> List[Tuple[int, int, float]]:
-    """Match clauses between two documents using text similarity."""
+    """
+    Match clauses between two documents.
+    Uses semantic embeddings if available, falls back to SequenceMatcher.
+    """
+    model = _get_embedding_model()
+
+    if model is not None and len(clauses1) > 0 and len(clauses2) > 0:
+        return _match_clauses_semantic(clauses1, clauses2, model)
+    else:
+        return _match_clauses_lexical(clauses1, clauses2)
+
+
+def _match_clauses_semantic(
+    clauses1: List[Dict],
+    clauses2: List[Dict],
+    model: Any
+) -> List[Tuple[int, int, float]]:
+    """Match clauses using semantic embeddings (cross-lingual capable)."""
+    try:
+        texts1 = [c["text"][:500] for c in clauses1]
+        texts2 = [c["text"][:500] for c in clauses2]
+
+        embs1 = model.encode(texts1, convert_to_numpy=True)
+        embs2 = model.encode(texts2, convert_to_numpy=True)
+
+        # Normalize embeddings
+        norms1 = np.linalg.norm(embs1, axis=1, keepdims=True)
+        norms2 = np.linalg.norm(embs2, axis=1, keepdims=True)
+        embs1_normed = embs1 / np.maximum(norms1, 1e-8)
+        embs2_normed = embs2 / np.maximum(norms2, 1e-8)
+
+        # Compute similarity matrix
+        sim_matrix = np.dot(embs1_normed, embs2_normed.T)
+
+        matches = []
+        used_c2 = set()
+
+        for i in range(len(clauses1)):
+            best_match = None
+            best_sim = 0
+
+            for j in range(len(clauses2)):
+                if j in used_c2:
+                    continue
+                sim = float(sim_matrix[i, j])
+                if sim > best_sim:
+                    best_sim = sim
+                    best_match = j
+
+            if best_match is not None and best_sim >= SEMANTIC_THRESHOLD:
+                matches.append((i, best_match, best_sim))
+                used_c2.add(best_match)
+            else:
+                matches.append((i, None, 0.0))
+
+        return matches
+
+    except Exception as e:
+        logger.warning(f"Semantic matching failed: {e}. Falling back to lexical.")
+        return _match_clauses_lexical(clauses1, clauses2)
+
+
+def _match_clauses_lexical(
+    clauses1: List[Dict], clauses2: List[Dict]
+) -> List[Tuple[int, int, float]]:
+    """Match clauses using SequenceMatcher (lexical similarity fallback)."""
     matches = []
     used_c2 = set()
 

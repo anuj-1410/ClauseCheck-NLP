@@ -1,7 +1,12 @@
 """
 ClauseCheck – Risk Detection Service
 Detects risky clauses in legal documents using pattern matching
-and semantic similarity analysis.
+AND semantic similarity analysis via multilingual sentence-transformers.
+
+Upgrades:
+  - Added semantic similarity using paraphrase-multilingual-mpnet-base-v2
+  - Cross-lingual risk detection: Hindi clause ↔ English prototypes
+  - Regex patterns kept as primary; semantic layer is additive
 """
 
 import re
@@ -9,6 +14,9 @@ import logging
 from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# Lazy-loaded semantic model
+_semantic_model = None
 
 # ──────────────────────────────────────────────
 # Risk patterns with categories and severity
@@ -137,13 +145,71 @@ HINDI_RISK_PATTERNS = {
     },
 }
 
+# ──────────────────────────────────────────────
+# Semantic risk prototypes (English) for cross-lingual matching
+# ──────────────────────────────────────────────
+RISK_PROTOTYPES = {
+    "unlimited_liability": [
+        "Unlimited liability without any cap.",
+        "The consultant shall bear responsibility without limitation.",
+        "No limit on damages or liability.",
+        "Full and complete liability for all losses.",
+    ],
+    "one_sided_termination": [
+        "One party can terminate the agreement at any time without reason.",
+        "Unilateral termination without notice.",
+        "The company has exclusive right to end this contract.",
+    ],
+    "non_compete_broad": [
+        "The employee shall not compete or work for any competitor.",
+        "Broad non-compete restriction preventing all competitive activity.",
+        "Prohibition from engaging in any similar business.",
+    ],
+    "waiver_of_rights": [
+        "The party irrevocably waives all legal rights and claims.",
+        "Complete waiver of rights to sue or seek damages.",
+        "Giving up all rights to compensation.",
+    ],
+    "indemnification_broad": [
+        "Indemnify against all claims, losses, damages and liabilities.",
+        "Full indemnification for any and all losses.",
+        "Hold harmless from all third-party claims.",
+    ],
+    "auto_renewal": [
+        "The contract automatically renews unless cancelled.",
+        "Deemed renewed without notice for additional terms.",
+    ],
+    "confidentiality_perpetual": [
+        "Confidentiality obligations continue indefinitely without time limit.",
+        "Perpetual confidentiality with no expiration.",
+    ],
+}
+
+SEMANTIC_THRESHOLD = 0.65  # Cosine similarity threshold
+
+
+def _get_semantic_model():
+    """Lazy-load sentence-transformer model for semantic similarity."""
+    global _semantic_model
+    if _semantic_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _semantic_model = SentenceTransformer(
+                "paraphrase-multilingual-mpnet-base-v2"
+            )
+            logger.info("Semantic risk model (multilingual mpnet) loaded.")
+        except Exception as e:
+            logger.warning(f"Failed to load semantic model: {e}. Semantic risk detection disabled.")
+            _semantic_model = False  # Mark as failed, don't retry
+    return _semantic_model if _semantic_model is not False else None
+
 
 def detect_risks(
     clauses: List[Dict],
     language: str = "en"
 ) -> List[Dict[str, Any]]:
     """
-    Detect risky clauses in the document.
+    Detect risky clauses in the document using regex + semantic similarity.
 
     Returns:
         List of risk findings with:
@@ -154,15 +220,27 @@ def detect_risks(
         - description: human-readable explanation
         - matched_text: the specific text that triggered the risk
         - risk_score: numeric score (1-10)
+        - detection_method: 'pattern' or 'semantic'
     """
     risks = []
     patterns = HINDI_RISK_PATTERNS if language == "hi" else RISK_PATTERNS
 
+    # Track which clauses already have which risk types (to avoid duplicates)
+    found_risks = set()  # (clause_id, risk_type)
+
+    # ── Layer 1: Regex pattern matching ──
     for clause in clauses:
         clause_risks = _analyze_clause_risk(clause, patterns)
+        for r in clause_risks:
+            r["detection_method"] = "pattern"
+            found_risks.add((r["clause_id"], r["risk_type"]))
         risks.extend(clause_risks)
 
-    logger.info(f"Detected {len(risks)} risk findings.")
+    # ── Layer 2: Semantic similarity (cross-lingual) ──
+    semantic_risks = _detect_semantic_risks(clauses, found_risks)
+    risks.extend(semantic_risks)
+
+    logger.info(f"Detected {len(risks)} risk findings ({len(semantic_risks)} semantic).")
     return risks
 
 
@@ -189,9 +267,92 @@ def _analyze_clause_risk(
                     "severity": severity,
                     "description": config["description"],
                     "matched_text": match.group(),
-                    "risk_score": score
+                    "risk_score": score,
+                    "detection_method": "pattern",
                 })
                 break  # One finding per risk type per clause
+
+    return findings
+
+
+def _detect_semantic_risks(
+    clauses: List[Dict],
+    already_found: set
+) -> List[Dict[str, Any]]:
+    """
+    Detect risks using semantic similarity against risk prototypes.
+    Works cross-lingually: Hindi clauses match English prototypes.
+    """
+    model = _get_semantic_model()
+    if model is None:
+        return []
+
+    findings = []
+
+    try:
+        import numpy as np
+
+        # Pre-encode all risk prototypes
+        proto_embeddings = {}
+        for risk_type, prototypes in RISK_PROTOTYPES.items():
+            proto_embeddings[risk_type] = model.encode(prototypes, convert_to_numpy=True)
+
+        # Encode all clause texts
+        clause_texts = [c["text"][:500] for c in clauses]
+        if not clause_texts:
+            return []
+
+        clause_embeddings = model.encode(clause_texts, convert_to_numpy=True)
+
+        # Compare each clause against each risk prototype set
+        for i, clause in enumerate(clauses):
+            clause_emb = clause_embeddings[i].reshape(1, -1)
+
+            for risk_type, proto_embs in proto_embeddings.items():
+                # Skip if this clause-risk combo was already found by regex
+                if (clause["id"], risk_type) in already_found:
+                    continue
+
+                # Compute cosine similarity with each prototype
+                similarities = np.dot(proto_embs, clause_emb.T).flatten()
+                # Normalize
+                norms_proto = np.linalg.norm(proto_embs, axis=1)
+                norm_clause = np.linalg.norm(clause_emb)
+                if norm_clause > 0:
+                    similarities = similarities / (norms_proto * norm_clause)
+
+                max_sim = float(np.max(similarities))
+
+                if max_sim >= SEMANTIC_THRESHOLD:
+                    severity_map = {
+                        "unlimited_liability": "high",
+                        "one_sided_termination": "high",
+                        "waiver_of_rights": "high",
+                        "indemnification_broad": "high",
+                        "non_compete_broad": "medium",
+                        "auto_renewal": "medium",
+                        "confidentiality_perpetual": "medium",
+                    }
+                    severity = severity_map.get(risk_type, "medium")
+                    score = {"high": 7, "medium": 4, "low": 2}[severity]
+
+                    findings.append({
+                        "clause_id": clause["id"],
+                        "clause_text": clause["text"][:300],
+                        "risk_type": risk_type,
+                        "severity": severity,
+                        "description": RISK_PATTERNS.get(risk_type, {}).get(
+                            "description",
+                            f"Semantic match for {risk_type.replace('_', ' ')}"
+                        ),
+                        "matched_text": f"[semantic match: {max_sim:.2f}]",
+                        "risk_score": score,
+                        "detection_method": "semantic",
+                    })
+                    already_found.add((clause["id"], risk_type))
+
+    except Exception as e:
+        logger.warning(f"Semantic risk detection failed: {e}")
 
     return findings
 
