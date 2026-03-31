@@ -107,12 +107,6 @@ export default function UploadPage() {
             const result = await response.json();
             clearInterval(stepInterval);
             
-            // Prevent QuotaExceededError from large PDF base64 image extracts
-            if (result.extracted_images) {
-                window[`images_${result.id}`] = result.extracted_images;
-                delete result.extracted_images;
-            }
-            
             sessionStorage.setItem(`result_${result.id}`, JSON.stringify(result));
             navigate(`/results/${result.id}`);
         } catch (err) {

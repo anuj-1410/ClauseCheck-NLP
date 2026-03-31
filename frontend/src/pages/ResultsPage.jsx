@@ -25,6 +25,26 @@ export default function ResultsPage() {
     const [whatIfLoading, setWhatIfLoading] = useState(false);
     const [negotiateLoading, setNegotiateLoading] = useState({});
     const [negotiations, setNegotiations] = useState({});
+    const [translating, setTranslating] = useState(false);
+
+    const handleTranslate = async (targetLang) => {
+        if (!result) return;
+        setTranslating(true);
+        try {
+            const formData = new FormData();
+            formData.append('target_lang', targetLang);
+            
+            const res = await fetch(`${API_URL}/api/translate/${id}`, {
+                method: 'POST',
+                body: formData,
+            });
+            if (!res.ok) throw new Error('Translation failed');
+            const data = await res.json();
+            setResult(data.result);
+            sessionStorage.setItem(`result_${id}`, JSON.stringify(data.result));
+        } catch (err) { alert(err.message); }
+        finally { setTranslating(false); }
+    };
 
     useEffect(() => {
         const loadResult = async () => {
@@ -91,6 +111,7 @@ export default function ResultsPage() {
     const plainEnglish = ca?.plain_english || [];
     const jurisdictionInfo = ca?.jurisdiction || {};
     const contractTypeInfo = ca?.contract_type || {};
+    const extractedImages = result.extracted_images || [];
 
     const riskColor = result.risk_score > 60 ? '#f87171' : result.risk_score > 30 ? '#fbbf24' : '#4ade80';
     const complianceColor = result.compliance_score >= 70 ? '#4ade80' : result.compliance_score >= 40 ? '#fbbf24' : '#f87171';
@@ -105,6 +126,7 @@ export default function ResultsPage() {
         { id: 'entities', label: 'Entities', Icon: IconUsers, count: Object.values(entities).flat().length },
         { id: 'obligations', label: 'Obligations', Icon: IconPin, count: obligations.length },
         { id: 'compliance', label: 'Compliance', Icon: IconCheck, count: compliance.total_checked || 0 },
+        { id: 'images', label: 'Attachments', Icon: IconFile, count: extractedImages.length },
         { id: 'whatif', label: 'What-If', Icon: IconWhatIf },
     ];
 
@@ -127,6 +149,12 @@ export default function ResultsPage() {
                     <div className="results-meta">
                         <span className="meta-badge"><IconFile size={14} /> {result.document_name}</span>
                         <span className="meta-badge"><IconGlobe size={14} /> {result.language}</span>
+                        
+                        <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 20, padding: 3, verticalAlign: 'middle', border: '1px solid rgba(255,255,255,0.1)' }}>
+                            <button style={{ background: result.language === 'English' ? 'var(--accent-blue)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: result.language === 'English' ? 600 : 400, opacity: translating && result.language !== 'English' ? 0.5 : 1 }} onClick={() => handleTranslate('en')} disabled={translating || result.language === 'English'}>EN</button>
+                            <button style={{ background: result.language === 'Hindi' ? 'var(--accent-amber)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: result.language === 'Hindi' ? 600 : 400, opacity: translating && result.language !== 'Hindi' ? 0.5 : 1 }} onClick={() => handleTranslate('hi')} disabled={translating || result.language === 'Hindi'}>HI</button>
+                        </div>
+                        
                         {jurisdictionInfo.name && <span className="meta-badge"><IconScale size={14} /> {jurisdictionInfo.name}</span>}
                         {contractTypeInfo.name && <span className="meta-badge"><IconCompare size={14} /> {contractTypeInfo.name}</span>}
                         <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/chat/${id}`)}><IconChat size={14} /> Chat</button>
@@ -163,6 +191,25 @@ export default function ResultsPage() {
                         <div className="clauses-list">
                             {clauses.map(clause => <ClauseCard key={clause.id} clause={clause} risks={risks} explanations={riskExplanations} />)}
                         </div>
+                    </section>
+                )}
+
+                {/* ATTACHMENTS TAB */}
+                {activeTab === 'images' && (
+                    <section className="animate-in">
+                        <div className="section-header"><h2>Extracted Attachments</h2><span className="section-badge">{extractedImages.length} images</span></div>
+                        <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: 16 }}>Photos, stamps, and signatures extracted from the document.</p>
+                        {extractedImages.length === 0 ? (
+                            <div className="empty-state glass-card"><div className="empty-state-icon"><IconFile size={48} /></div><p>No images found in the document.</p></div>
+                        ) : (
+                            <div className="images-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
+                                {extractedImages.map((imgUrl, i) => (
+                                    <div key={i} className="glass-card" style={{ padding: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.03)' }}>
+                                        <img src={imgUrl} alt={`Attachment ${i+1}`} style={{ maxWidth: '100%', maxHeight: 300, objectFit: 'contain', borderRadius: 8 }} />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </section>
                 )}
 
