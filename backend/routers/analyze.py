@@ -6,6 +6,7 @@ GET  /api/options  — Available jurisdictions and contract types.
 
 import gc
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -97,12 +98,25 @@ async def analyze_document(
         logger.info(f"Processing: {filename} ({len(file_bytes)} bytes) | Jurisdiction: {jurisdiction} | Type: {contract_type}")
 
         # ── Step 2: Parse document ──
-        text, needs_ocr = parse_document(file_bytes, filename)
+        text, needs_ocr, extracted_images_base64 = parse_document(file_bytes, filename)
 
         # ── Step 3: OCR if needed ──
         if needs_ocr:
             logger.info("Document requires OCR processing...")
             text = extract_text_from_scanned_pdf(file_bytes)
+            if isinstance(text, str) and text.startswith("[OCR Error:"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unable to scan this PDF. {text[11:-1]}"
+                )
+            if _is_low_quality_ocr_text(text):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Scan quality is too low for reliable analysis. "
+                        "Please upload a clearer PDF (higher resolution, less compression, minimal skew)."
+                    )
+                )
 
         if not text or len(text.strip()) < 20:
             raise HTTPException(
@@ -234,7 +248,7 @@ async def analyze_document(
 
         # ── Step 15: Store ──
         stored = store_result(result_data)
-        logger.info(f"✅ Analysis complete: {stored.get('id')}")
+        logger.info(f"Analysis complete: {stored.get('id')}")
 
         return {
             "success": True,
@@ -245,6 +259,7 @@ async def analyze_document(
             "compliance_score": compliance["compliance_score"],
             "summary": summary,
             "clause_analysis": clause_analysis,
+            "extracted_images": extracted_images_base64,
             "created_at": stored.get("created_at"),
         }
 
@@ -269,4 +284,73 @@ def _calculate_risk_confidence(risk: Dict) -> float:
     if risk.get("risk_type") in high_conf_types:
         base += 0.1
     return min(round(base, 2), 0.95)
+
+
+def _is_low_quality_ocr_text(text: str) -> bool:
+    """
+    Heuristic check for garbled OCR output to avoid fake summaries.
+    """
+    if not text:
+        return True
+
+    cleaned = text.strip()
+    if len(cleaned) < 120:
+        return True
+
+    tokens = re.findall(r"[A-Za-z0-9]+", cleaned)
+    if len(tokens) < 40:
+        return True
+
+    short_token_ratio = sum(1 for t in tokens if len(t) <= 2) / len(tokens)
+    digit_heavy_ratio = sum(1 for t in tokens if any(ch.isdigit() for ch in t)) / len(tokens)
+    letters = [c.lower() for c in cleaned if c.isalpha()]
+    vowel_ratio = 0.0
+    if letters:
+        vowel_ratio = sum(1 for c in letters if c in "aeiou") / len(letters)
+
+    alpha_chars_total = sum(1 for c in cleaned if c.isalpha())
+    uppercase_chars = sum(1 for c in cleaned if c.isalpha() and c.isupper())
+    latin_chars = sum(1 for c in cleaned if ("a" <= c.lower() <= "z"))
+    latin_ratio = (latin_chars / alpha_chars_total) if alpha_chars_total else 0.0
+    uppercase_ratio = (uppercase_chars / alpha_chars_total) if alpha_chars_total else 0.0
+
+    common_legal_words = {
+        "the", "and", "of", "to", "in", "for", "with", "this", "that", "shall",
+        "party", "parties", "agreement", "contract", "lessor", "lessee", "property",
+        "rent", "term", "date", "notice", "payment", "clause", "hereby",
+    }
+    alpha_tokens = [t.lower() for t in tokens if t.isalpha()]
+    common_word_ratio = 0.0
+    if alpha_tokens:
+        common_word_ratio = sum(1 for t in alpha_tokens if t in common_legal_words) / len(alpha_tokens)
+    replacement_char_count = cleaned.count("�")
+    replacement_char_ratio = replacement_char_count / max(len(cleaned), 1)
+    first_chunk = cleaned[:1800]
+    head_chunk = cleaned[:600]
+    start_chunk = cleaned[:120]
+    noisy_chars = sum(
+        1 for ch in first_chunk
+        if not (ch.isalnum() or ch.isspace() or ch in ".,:;!?()/-'\"")
+    )
+    noisy_char_ratio = noisy_chars / max(len(first_chunk), 1)
+    head_alpha_ratio = sum(1 for ch in head_chunk if ch.isalpha()) / max(len(head_chunk), 1)
+    start_noise_ratio = sum(
+        1 for ch in start_chunk
+        if not (ch.isalnum() or ch.isspace() or ch in ".,:;!?()/-'\"")
+    ) / max(len(start_chunk), 1)
+
+    # Garbled OCR usually has too many tiny fragments, too many digit-heavy tokens,
+    # and unusually low vowel presence in Latin text.
+    return (
+        short_token_ratio > 0.55
+        or digit_heavy_ratio > 0.35
+        or (len(letters) > 200 and vowel_ratio < 0.22)
+        or replacement_char_count >= 20
+        or replacement_char_ratio > 0.002
+        or head_alpha_ratio < 0.45
+        or start_noise_ratio > 0.18
+        or (len(alpha_tokens) > 40 and latin_ratio > 0.85 and common_word_ratio < 0.01)
+        or (alpha_chars_total > 300 and latin_ratio > 0.85 and uppercase_ratio > 0.55 and short_token_ratio > 0.35)
+        or (noisy_char_ratio > 0.20 and short_token_ratio > 0.45)
+    )
 

@@ -54,7 +54,7 @@ def initialize(url: str, key: str):
             )
             if resp.status_code in (200, 206):
                 _use_supabase = True
-                logger.info("✅ Supabase connected successfully.")
+                logger.info("Supabase connected successfully.")
             else:
                 logger.warning(
                     f"Supabase responded with {resp.status_code}: {resp.text}. "

@@ -15,7 +15,7 @@ ChartJS.register(
     RadialLinearScale, PointElement, LineElement, Filler,
 );
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function HistoryPage() {
     const [results, setResults] = useState([]);

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { IconFile, IconSearch, IconArrowLeft, IconScale, IconCheck, IconX, IconAmbiguity } from '../components/Icons';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function ComparePage() {
     const [file1, setFile1] = useState(null);

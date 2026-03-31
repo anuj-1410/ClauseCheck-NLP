@@ -8,10 +8,19 @@ Detects whether a PDF is scanned (image-based) and needs OCR.
 import io
 import re
 import logging
+import base64
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 
 logger = logging.getLogger(__name__)
+
+try:
+    import fitz  # PyMuPDF
+    _USE_FITZ = True
+    logger.info("Using PyMuPDF for image/stamp extraction.")
+except ImportError:
+    _USE_FITZ = False
+    logger.info("PyMuPDF not found. Image extraction disabled.")
 
 # Try pdfplumber first, fall back to PyPDF2
 try:
@@ -26,20 +35,21 @@ except ImportError:
 from docx import Document
 
 
-def parse_document(file_bytes: bytes, filename: str) -> Tuple[str, bool]:
+def parse_document(file_bytes: bytes, filename: str) -> Tuple[str, bool, List[str]]:
     """
-    Parse a document and extract its text content.
+    Parse a document and extract its text content and images/stamps.
 
     Returns:
-        Tuple of (extracted_text, needs_ocr)
+        Tuple of (extracted_text, needs_ocr, extracted_images_base64)
         - If needs_ocr is True, the text is empty/minimal and OCR is required.
+        - extracted_images_base64: List of Data-URI formatted base64 strings.
     """
     ext = Path(filename).suffix.lower()
 
     if ext == ".txt":
-        return _parse_txt(file_bytes), False
+        return _parse_txt(file_bytes), False, []
     elif ext == ".docx":
-        return _parse_docx(file_bytes), False
+        return _parse_docx(file_bytes), False, []
     elif ext == ".pdf":
         return _parse_pdf(file_bytes)
     else:
@@ -73,15 +83,50 @@ def _parse_docx(file_bytes: bytes) -> str:
     return "\n".join(parts)
 
 
-def _parse_pdf(file_bytes: bytes) -> Tuple[str, bool]:
+def _extract_images_from_pdf(file_bytes: bytes) -> List[str]:
+    """Extract embedded images, photos, and stamps using PyMuPDF."""
+    if not _USE_FITZ:
+        return []
+    
+    try:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        images = []
+        for i in range(len(doc)):
+            page = doc[i]
+            image_list = page.get_images(full=True)
+            for img_info in image_list:
+                xref = img_info[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                img_ext = base_image["ext"]
+                
+                # Small files (<100 bytes) are usually tracking pixels/lines, skip them
+                if len(image_bytes) < 100:
+                    continue
+                    
+                encoded = base64.b64encode(image_bytes).decode('utf-8')
+                mime = f"image/{img_ext}"
+                images.append(f"data:{mime};base64,{encoded}")
+        return images
+    except Exception as e:
+        logger.warning(f"Failed to extract images with PyMuPDF: {e}")
+        return []
+
+
+def _parse_pdf(file_bytes: bytes) -> Tuple[str, bool, List[str]]:
     """
     Parse PDF file with layout awareness.
     If text extraction yields very little text, flag it as needing OCR.
+    Extracts all images and returns them alongside text.
     """
+    images = _extract_images_from_pdf(file_bytes)
+
     if _USE_PDFPLUMBER:
-        return _parse_pdf_pdfplumber(file_bytes)
+        text, needs_ocr = _parse_pdf_pdfplumber(file_bytes)
     else:
-        return _parse_pdf_pypdf2(file_bytes)
+        text, needs_ocr = _parse_pdf_pypdf2(file_bytes)
+        
+    return text, needs_ocr, images
 
 
 def _parse_pdf_pdfplumber(file_bytes: bytes) -> Tuple[str, bool]:

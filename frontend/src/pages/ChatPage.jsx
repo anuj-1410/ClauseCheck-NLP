@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { IconChat, IconArrowLeft, IconSend } from '../components/Icons';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const QUICK_QUESTIONS = [
     "Can I terminate this contract early?",

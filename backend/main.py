@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     # Pre-load NLP models
     _preload_models()
 
-    logger.info("✅ ClauseCheck v2.0 is ready!")
+    logger.info("ClauseCheck v2.0 is ready!")
     logger.info("=" * 60)
 
     yield  # App is running
@@ -67,7 +67,7 @@ def _preload_models():
     try:
         import spacy
         spacy.load("en_core_web_sm")
-        logger.info("✅ spaCy English model loaded.")
+        logger.info("spaCy English model loaded.")
     except Exception as e:
         logger.warning(f"spaCy model not available: {e}")
         logger.warning("  Run: python -m spacy download en_core_web_sm")

@@ -10,7 +10,7 @@ import {
     IconCalendar, IconDollar, IconDot, IconArrowDown, IconNegotiate, IconX
 } from '../components/Icons';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 export default function ResultsPage() {
     const { id } = useParams();

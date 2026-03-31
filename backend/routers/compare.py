@@ -44,8 +44,8 @@ async def compare_documents(
                 raise HTTPException(400, f"{label}: File too large")
 
         # Parse both documents
-        text1, ocr1 = parse_document(bytes1, file1.filename)
-        text2, ocr2 = parse_document(bytes2, file2.filename)
+        text1, ocr1, _ = parse_document(bytes1, file1.filename)
+        text2, ocr2, _ = parse_document(bytes2, file2.filename)
 
         if ocr1:
             text1 = extract_text_from_scanned_pdf(bytes1)

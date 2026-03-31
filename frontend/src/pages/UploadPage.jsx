@@ -7,7 +7,7 @@ import {
 } from '../components/Icons';
 import useScrollReveal from '../hooks/useScrollReveal';
 
-const API_URL = 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const STEPS = [
     'Uploading document...',
@@ -106,6 +106,13 @@ export default function UploadPage() {
 
             const result = await response.json();
             clearInterval(stepInterval);
+            
+            // Prevent QuotaExceededError from large PDF base64 image extracts
+            if (result.extracted_images) {
+                window[`images_${result.id}`] = result.extracted_images;
+                delete result.extracted_images;
+            }
+            
             sessionStorage.setItem(`result_${result.id}`, JSON.stringify(result));
             navigate(`/results/${result.id}`);
         } catch (err) {
