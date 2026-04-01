@@ -55,7 +55,11 @@ async def chat_with_contract(req: ChatRequest):
     if not context:
         context = result.get("summary", "No contract text available.")
 
-    answer = answer_question(req.question, context, req.language or "en")
+    try:
+        answer = answer_question(req.question, context, req.language or "en")
+    except RuntimeError as exc:
+        logger.error("Contract chat failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "success": True,
@@ -71,7 +75,11 @@ async def get_negotiation_advice(req: NegotiateRequest):
     if not is_available():
         raise HTTPException(status_code=503, detail="LLM service not configured. Add GROQ_API_KEY to .env")
 
-    advice = suggest_negotiation(req.clause_text, req.risk_type, req.severity)
+    try:
+        advice = suggest_negotiation(req.clause_text, req.risk_type, req.severity)
+    except RuntimeError as exc:
+        logger.error("Negotiation advice generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "success": True,
@@ -86,7 +94,11 @@ async def what_if_simulation(req: WhatIfRequest):
     if not is_available():
         raise HTTPException(status_code=503, detail="LLM service not configured. Add GROQ_API_KEY to .env")
 
-    analysis = simulate_what_if(req.original_clause, req.modified_clause)
+    try:
+        analysis = simulate_what_if(req.original_clause, req.modified_clause)
+    except RuntimeError as exc:
+        logger.error("What-if simulation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
         "success": True,

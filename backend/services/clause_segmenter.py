@@ -82,8 +82,11 @@ def _segment_by_sections(text: str, patterns: List[str]) -> List[Dict]:
     # Remove duplicate/overlapping boundaries
     filtered = [boundaries[0]]
     for b in boundaries[1:]:
-        if b["start"] - filtered[-1]["start"] > 20:
+        previous = filtered[-1]
+        if b["start"] >= previous["match_end"]:
             filtered.append(b)
+        elif b["match_end"] > previous["match_end"]:
+            filtered[-1] = b
     boundaries = filtered
 
     # Extract clauses between boundaries
@@ -150,24 +153,44 @@ def _merge_short_clauses(clauses: List[Dict], min_length: int = 30) -> List[Dict
         return clauses
 
     merged = []
-    buffer = ""
+    buffered_clause = None
 
     for clause in clauses:
-        if len(clause["text"]) < min_length and buffer == "":
-            buffer = clause["text"]
-        elif buffer:
-            clause["text"] = buffer + " " + clause["text"]
-            clause["id"] = len(merged) + 1
-            merged.append(clause)
-            buffer = ""
-        else:
-            clause["id"] = len(merged) + 1
-            merged.append(clause)
+        current_clause = {
+            "id": clause.get("id", 0),
+            "text": clause.get("text", "").strip(),
+            "section_number": clause.get("section_number", ""),
+        }
 
-    # If buffer still has content, append to last clause
-    if buffer and merged:
-        merged[-1]["text"] += " " + buffer
-    elif buffer:
-        merged.append({"id": 1, "text": buffer, "section_number": ""})
+        if len(current_clause["text"]) < min_length:
+            if buffered_clause is None:
+                buffered_clause = current_clause
+            else:
+                buffered_clause["text"] = (
+                    f'{buffered_clause["text"]} {current_clause["text"]}'.strip()
+                )
+                if not buffered_clause.get("section_number"):
+                    buffered_clause["section_number"] = current_clause.get("section_number", "")
+            continue
+
+        if buffered_clause is not None:
+            current_clause["text"] = (
+                f'{buffered_clause["text"]} {current_clause["text"]}'.strip()
+            )
+            if buffered_clause.get("section_number"):
+                current_clause["section_number"] = buffered_clause["section_number"]
+            buffered_clause = None
+
+        current_clause["id"] = len(merged) + 1
+        merged.append(current_clause)
+
+    # If buffer still has content, append to the last merged clause.
+    if buffered_clause and merged:
+        merged[-1]["text"] = f'{merged[-1]["text"]} {buffered_clause["text"]}'.strip()
+        if not merged[-1].get("section_number"):
+            merged[-1]["section_number"] = buffered_clause.get("section_number", "")
+    elif buffered_clause:
+        buffered_clause["id"] = 1
+        merged.append(buffered_clause)
 
     return merged

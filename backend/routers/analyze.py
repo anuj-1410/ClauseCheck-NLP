@@ -7,8 +7,10 @@ GET  /api/options  — Available jurisdictions and contract types.
 import gc
 import logging
 import re
+import time
+from copy import deepcopy
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 
@@ -31,13 +33,15 @@ from services.jurisdiction_engine import (
     get_legal_references, adjust_risk_severity,
 )
 from services.llm_service import (
-    translate_to_plain_english, generate_smart_summary, is_available as llm_available
+    translate_to_plain_english, generate_smart_summary,
+    is_available as llm_available, translate_texts,
 )
-from db.supabase_client import store_result
+from db.supabase_client import store_result, get_result_by_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
+_TRANSLATION_LANGUAGE_CODES = {"en", "hi"}
 
 
 @router.get("/options")
@@ -77,6 +81,8 @@ async def analyze_document(
     file_bytes = None
 
     try:
+        request_started_at = time.perf_counter()
+
         # ── Step 1: Validate file ──
         filename = file.filename or "unknown.txt"
         ext = Path(filename).suffix.lower()
@@ -103,7 +109,13 @@ async def analyze_document(
         # ── Step 3: OCR if needed ──
         if needs_ocr:
             logger.info("Document requires OCR processing...")
+            ocr_started_at = time.perf_counter()
             text = extract_text_from_scanned_pdf(file_bytes)
+            logger.info(
+                "OCR completed in %.1fs and produced %s characters.",
+                time.perf_counter() - ocr_started_at,
+                len(text) if isinstance(text, str) else 0,
+            )
             if isinstance(text, str) and text.startswith("[OCR Error:"):
                 raise HTTPException(
                     status_code=422,
@@ -130,6 +142,7 @@ async def analyze_document(
 
         # ── Step 5: Segment clauses ──
         clauses = segment_clauses(text, language)
+        logger.info("Clause segmentation produced %s clause(s).", len(clauses))
 
         # ── Step 6: Extract entities ──
         entities = extract_entities(text, language)
@@ -149,13 +162,19 @@ async def analyze_document(
         # ── Step 9: Jurisdiction-aware compliance ──
         jurisdiction_rules = get_jurisdiction_rules(jurisdiction or "general")
         contract_info = get_contract_type_info(contract_type or "general")
-        compliance = check_compliance(clauses, text, language)
+        compliance = check_compliance(
+            clauses,
+            text,
+            language,
+            jurisdiction_rules=jurisdiction_rules,
+            contract_info=contract_info,
+        )
 
         # Add legal references from jurisdiction
         for detail in compliance.get("details", []):
             clause_type = detail.get("clause_type", "")
             req = jurisdiction_rules.get("required_clauses", {}).get(clause_type, {})
-            detail["legal_reference"] = req.get("ref", "")
+            detail["legal_reference"] = detail.get("legal_reference") or req.get("ref", "")
 
         # Add jurisdiction risk notes
         for r in risks:
@@ -172,26 +191,17 @@ async def analyze_document(
         explanations = generate_explanations(risks, compliance, language)
 
         # ── Step 13: Plain English translations (LLM) ──
-        plain_english = []
+        plain_english_started_at = time.perf_counter()
+        plain_english = _build_plain_english_entries(clauses, language)
         if llm_available():
-            # Translate top 15 clauses (to stay within rate limits)
-            for clause in clauses[:15]:
-                try:
-                    simplified = translate_to_plain_english(clause["text"], language)
-                    plain_english.append({
-                        "clause_id": clause["id"],
-                        "original": clause["text"][:300],
-                        "simplified": simplified,
-                    })
-                except Exception as e:
-                    logger.warning(f"LLM translation failed for clause {clause['id']}: {e}")
-                    plain_english.append({
-                        "clause_id": clause["id"],
-                        "original": clause["text"][:300],
-                        "simplified": "[Translation unavailable]",
-                    })
+            logger.info(
+                "Plain-English generation produced %s item(s) in %.1fs.",
+                len(plain_english),
+                time.perf_counter() - plain_english_started_at,
+            )
 
         # ── Step 14: Smart summary (LLM) ──
+        summary_started_at = time.perf_counter()
         if llm_available():
             try:
                 summary = generate_smart_summary(text, language)
@@ -199,6 +209,7 @@ async def analyze_document(
                 summary = summarize_document(text)
         else:
             summary = summarize_document(text)
+        logger.info("Summary generation completed in %.1fs.", time.perf_counter() - summary_started_at)
 
         # ── Build result payload ──
         clause_analysis = {
@@ -226,6 +237,7 @@ async def analyze_document(
             "responsibility": responsibility,
             "timeline": timeline,
             "plain_english": plain_english,
+            "extracted_images": extracted_images_base64,
             "jurisdiction": {
                 "code": jurisdiction or "general",
                 "name": jurisdiction_rules.get("name", "General"),
@@ -234,6 +246,8 @@ async def analyze_document(
             "contract_type": {
                 "code": contract_type or "general",
                 "name": contract_info.get("name", "General Contract"),
+                "focus": contract_info.get("focus", []),
+                "extra_checks": contract_info.get("extra_checks", []),
             },
         }
 
@@ -249,12 +263,15 @@ async def analyze_document(
         # ── Step 15: Store ──
         stored = store_result(result_data)
         logger.info(f"Analysis complete: {stored.get('id')}")
+        logger.info("Full analysis request completed in %.1fs.", time.perf_counter() - request_started_at)
 
         return {
             "success": True,
             "id": stored.get("id"),
             "document_name": filename,
             "language": language_name,
+            "document_language": language_name,
+            "display_language": language_name,
             "risk_score": risk_score,
             "compliance_score": compliance["compliance_score"],
             "summary": summary,
@@ -273,6 +290,32 @@ async def analyze_document(
         gc.collect()
 
 
+@router.post("/translate/{result_id}")
+async def translate_analysis_result(
+    result_id: str,
+    target_lang: str = Form(...),
+):
+    """Translate UI-facing result text for display without mutating the stored analysis."""
+    normalized_target = target_lang.strip().lower()
+    if normalized_target not in _TRANSLATION_LANGUAGE_CODES:
+        raise HTTPException(status_code=400, detail="Unsupported target language. Use 'en' or 'hi'.")
+
+    if not llm_available():
+        raise HTTPException(status_code=503, detail="LLM service not configured. Add GROQ_API_KEY to .env")
+
+    result = get_result_by_id(result_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis result not found.")
+
+    try:
+        translated = _translate_result_for_display(result, normalized_target)
+    except RuntimeError as exc:
+        logger.error("Result translation failed for %s: %s", result_id, exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"success": True, "result": translated}
+
+
 def _calculate_risk_confidence(risk: Dict) -> float:
     """Calculate confidence score for a risk finding."""
     base = 0.7
@@ -284,6 +327,168 @@ def _calculate_risk_confidence(risk: Dict) -> float:
     if risk.get("risk_type") in high_conf_types:
         base += 0.1
     return min(round(base, 2), 0.95)
+
+
+def _build_plain_english_entries(
+    clauses: List[Dict[str, Any]],
+    language: str,
+) -> List[Dict[str, str]]:
+    """Build plain-language summaries for every clause when the LLM is available."""
+    plain_english = []
+    if not llm_available():
+        return plain_english
+
+    for clause in clauses:
+        try:
+            simplified = translate_to_plain_english(clause["text"], language)
+        except Exception as exc:
+            logger.warning("LLM translation failed for clause %s: %s", clause.get("id"), exc)
+            simplified = "[Translation unavailable]"
+
+        plain_english.append({
+            "clause_id": clause["id"],
+            "original": clause["text"][:300],
+            "simplified": simplified,
+        })
+
+    return plain_english
+
+
+def _translate_result_for_display(result: Dict[str, Any], target_lang: str) -> Dict[str, Any]:
+    """Translate the stored result into the requested display language."""
+    translated_result = deepcopy(result)
+    document_language = result.get("document_language") or result.get("language", "English")
+    source_lang = _language_name_to_code(document_language)
+
+    translated_result["document_language"] = document_language
+    translated_result["display_language"] = get_language_name(target_lang)
+    translated_result["language"] = document_language
+
+    if source_lang == target_lang:
+        return translated_result
+
+    translated_result["summary"] = translate_texts(
+        [translated_result.get("summary", "")],
+        target_lang,
+        source_lang,
+    )[0]
+
+    clause_analysis = translated_result.get("clause_analysis", {})
+    if not isinstance(clause_analysis, dict):
+        return translated_result
+
+    _translate_dict_list_fields(
+        clause_analysis.get("risks", []),
+        ("description", "legal_note", "jurisdiction_note"),
+        target_lang,
+        source_lang,
+    )
+    _translate_dict_list_fields(
+        clause_analysis.get("obligations", []),
+        ("text", "condition"),
+        target_lang,
+        source_lang,
+    )
+    _translate_dict_list_fields(
+        clause_analysis.get("plain_english", []),
+        ("simplified",),
+        target_lang,
+        source_lang,
+    )
+
+    timeline = clause_analysis.get("timeline", {})
+    if isinstance(timeline, dict):
+        _translate_dict_list_fields(
+            timeline.get("events", []),
+            ("description",),
+            target_lang,
+            source_lang,
+        )
+
+    responsibility = clause_analysis.get("responsibility", {})
+    if isinstance(responsibility, dict):
+        _translate_dict_list_fields(
+            responsibility.get("passive_voice", []),
+            ("issue", "suggestion"),
+            target_lang,
+            source_lang,
+        )
+        _translate_dict_list_fields(
+            responsibility.get("vague_terms", []),
+            ("issue", "suggestion"),
+            target_lang,
+            source_lang,
+        )
+        _translate_dict_list_fields(
+            responsibility.get("missing_subjects", []),
+            ("issue",),
+            target_lang,
+            source_lang,
+        )
+
+    compliance = clause_analysis.get("compliance", {})
+    if isinstance(compliance, dict):
+        _translate_dict_list_fields(
+            compliance.get("details", []),
+            ("description",),
+            target_lang,
+            source_lang,
+        )
+        _translate_dict_list_fields(
+            compliance.get("missing_clauses", []),
+            ("description",),
+            target_lang,
+            source_lang,
+        )
+
+    explanations = clause_analysis.get("explanations", {})
+    if isinstance(explanations, dict):
+        _translate_dict_list_fields(
+            explanations.get("risk_explanations", []),
+            ("explanation",),
+            target_lang,
+            source_lang,
+        )
+        _translate_dict_list_fields(
+            explanations.get("compliance_explanations", []),
+            ("explanation",),
+            target_lang,
+            source_lang,
+        )
+        if explanations.get("overall_summary"):
+            explanations["overall_summary"] = translate_texts(
+                [explanations["overall_summary"]],
+                target_lang,
+                source_lang,
+            )[0]
+
+    return translated_result
+
+
+def _translate_dict_list_fields(
+    items: List[Dict[str, Any]],
+    fields: tuple[str, ...],
+    target_lang: str,
+    source_lang: str,
+) -> None:
+    """Translate selected fields across a list of dictionaries in place."""
+    if not items:
+        return
+
+    for field in fields:
+        texts = [str(item.get(field, "")) for item in items]
+        translated_texts = translate_texts(texts, target_lang, source_lang)
+        for item, translated_text in zip(items, translated_texts):
+            if item.get(field):
+                item[field] = translated_text
+
+
+def _language_name_to_code(language_name: str) -> str:
+    """Convert a human-readable language name to the internal code used by the LLM helpers."""
+    normalized = (language_name or "").strip().lower()
+    if normalized in {"hi", "hindi"}:
+        return "hi"
+    return "en"
 
 
 def _is_low_quality_ocr_text(text: str) -> bool:

@@ -1,0 +1,127 @@
+# ClauseCheck Upgrade — Model Optimization + Contract Intelligence Workspace
+
+Two sequential upgrades: (1) **new_updates** — replace heavy NLP models with lightweight alternatives, fix thresholds; (2) **upgrade_2** — enrich backend analysis data and redesign frontend into an intelligence workspace.
+
+---
+
+## Phase 1: Model Optimization (new_updates.txt)
+
+### Backend Config
+
+#### [MODIFY] [config.py](file:///c:/anujDrive/NLP_Project/backend/config.py)
+- Change `SPACY_MODEL` from `"en_core_web_trf"` to `"en_core_web_sm"`
+
+---
+
+#### [MODIFY] [entity_extractor.py](file:///c:/anujDrive/NLP_Project/backend/services/entity_extractor.py)
+- In [_get_spacy()](file:///c:/anujDrive/NLP_Project/backend/services/entity_extractor.py#60-77): Remove trf fallback logic. Load `en_core_web_sm` directly.
+
+#### [MODIFY] [obligation_detector.py](file:///c:/anujDrive/NLP_Project/backend/services/obligation_detector.py)
+- In [_get_spacy()](file:///c:/anujDrive/NLP_Project/backend/services/entity_extractor.py#60-77): Same change — load `en_core_web_sm` directly.
+
+#### [MODIFY] [responsibility_detector.py](file:///c:/anujDrive/NLP_Project/backend/services/responsibility_detector.py)
+- In [_get_spacy()](file:///c:/anujDrive/NLP_Project/backend/services/entity_extractor.py#60-77): Same change — load `en_core_web_sm` directly.
+
+---
+
+#### [MODIFY] [risk_detector.py](file:///c:/anujDrive/NLP_Project/backend/services/risk_detector.py)
+- In [_get_semantic_model()](file:///c:/anujDrive/NLP_Project/backend/services/risk_detector.py#191-205): Replace `paraphrase-multilingual-mpnet-base-v2` → `paraphrase-multilingual-MiniLM-L12-v2`
+
+#### [MODIFY] [contract_comparator.py](file:///c:/anujDrive/NLP_Project/backend/services/contract_comparator.py)
+- In [_get_embedding_model()](file:///c:/anujDrive/NLP_Project/backend/services/contract_comparator.py#31-45): Replace `paraphrase-multilingual-mpnet-base-v2` → `paraphrase-multilingual-MiniLM-L12-v2`
+- Raise `SEMANTIC_THRESHOLD` from `0.55` → `0.72`
+
+---
+
+#### [MODIFY] [clause_segmenter.py](file:///c:/anujDrive/NLP_Project/backend/services/clause_segmenter.py)
+- Replace the 20-char heuristic duplicate boundary filter with actual range-overlap detection
+
+---
+
+## Phase 2: Backend Enhancements (upgrade_2.txt)
+
+#### [MODIFY] [analyze.py](file:///c:/anujDrive/NLP_Project/backend/routers/analyze.py)
+Enrich the result payload with all the new intelligence data:
+
+1. **Clause Impact Scores** — for each clause, compute:
+   - [risk_score](file:///c:/anujDrive/NLP_Project/backend/services/risk_detector.py#360-381) (from matching risks), `ambiguity_count`, `obligation_count`, `severity` label, `impact_score` (weighted composite)
+2. **Risk Enrichment** — for each risk, add:
+   - `impact_category` (Financial/Operational/IP/Reputational — inferred from risk_type)
+   - `exposure_level` (Unlimited/Capped/Undefined — from clause text analysis)
+   - `suggested_fix` (template text per risk_type)
+3. **Plain English Enrichment** — for each translation, compute:
+   - `complexity_score` (sentence length + conjunction count)
+   - `complexity_reduction_pct` (% simplification)
+   - `transformations` list (e.g., "Passive voice removed", "Long sentence split")
+4. **Ambiguity Enrichment** — for each vague term, add:
+   - `suggested_precision` (mapped rewrite for "promptly" → "Within 48 hours", etc.)
+5. **Timeline Enhancement** — compute:
+   - `end_date`, `notice_deadline`, `renewal_deadline` from start date + duration + notice period
+   - `lifecycle_phases` (Active Period, Termination Window, Post-Termination Obligations)
+6. **Entity Enhancement** — add:
+   - `role_inference` (Client/Provider based on obligations)
+   - `financial_summary` (monthly × duration = total value)
+   - `liability_cap_status` (Defined/Not Defined)
+7. **Obligation Enhancement** — compute:
+   - `burden_ratio` (consultant obligations / total)
+   - `unilateral_flags` (indemnity, termination, liability)
+   - `imbalance_level` (High/Moderate/Balanced)
+8. **Compliance Enhancement** — for each missing clause, add:
+   - `risk_level` (High/Medium/Low)
+   - `worst_case` (consequence text)
+   - `priority` (Critical/Important/Recommended)
+
+---
+
+## Phase 3: Frontend Redesign (upgrade_2.txt)
+
+> [!IMPORTANT]
+> **Layout Suggestion for Result Page:** Keep the **Quick Action Header** (scores + tug-of-war + gaps + exposure) at the top spanning full width. Below it, place the **Executive Summary** (collapsible). Then replace the horizontal tabs with a **left vertical sidebar** (20% width) + **main content area** (80% width). The existing Dashboard charts (Risk Doughnut, Compliance Grid, Radar) can be **moved into their respective tabs** so they appear contextually when the user selects that category, rather than being separate. This makes the top area focused on strategic overview, and tabs become deep-dive panels.
+
+#### [MODIFY] [ResultsPage.jsx](file:///c:/anujDrive/NLP_Project/frontend/src/pages/ResultsPage.jsx)
+Complete restructure:
+- Replace horizontal tabs with left vertical sidebar navigation
+- Add severity badges and counts to sidebar items
+- Each tab's content area gets the enhanced designs below
+- Integrate What-If inline into clause cards (Edit & Re-Analyze button per clause)
+- Remove What-If as a separate tab
+
+#### [MODIFY] [Dashboard.jsx](file:///c:/anujDrive/NLP_Project/frontend/src/components/Dashboard.jsx)
+Redesign into Quick Action Header:
+- **A.** Safety Score — large circular gauge (derived from risk + compliance + ambiguity)
+- **B.** Responsibility Tug-of-War bar (consultant % vs company %)
+- **C.** Critical Gaps indicator (missing clauses count + high-severity risk count, clickable)
+- **D.** Financial Exposure badge (total contract value + liability cap status)
+
+#### [MODIFY] [ClauseCard.jsx](file:///c:/anujDrive/NLP_Project/frontend/src/components/ClauseCard.jsx)
+- Add risk color strip on left border (red/yellow/green)
+- Add severity label and impact icons
+- Add mini progress bar showing impact_score
+- Add inline What-If "Edit & Re-Analyze" button
+
+#### [MODIFY] [index.css](file:///c:/anujDrive/NLP_Project/frontend/src/index.css)
+- Add sidebar navigation styles
+- Add risk heatmap styles (color strips, filter UI)
+- Add tug-of-war bar styles
+- Add lifecycle visualizer styles (horizontal time rail)
+- Add burden analyzer styles (distribution bars)
+- Add protection gap table styles
+- Add glow, pulse, gradient, shadow, and hover tilt effects
+- Visual improvements: severity pulse animation, card glow, depth shadows
+
+---
+
+## Verification Plan
+
+### Manual Verification
+1. **Backend startup**: Run `cd c:\anujDrive\NLP_Project\backend && python -m uvicorn main:app --port 8000` and confirm no import errors, all models load.
+2. **Frontend startup**: Run `cd c:\anujDrive\NLP_Project\frontend && npm run dev` and confirm clean compilation.
+3. **Browser test**: Navigate to the frontend, verify the new sidebar layout renders correctly with proper responsive design.
+4. **Upload a contract**: Upload a test document and verify:
+   - Quick Action Header shows safety score, tug-of-war, gaps, exposure
+   - Each sidebar tab renders with enhanced data
+   - Clause cards show risk color strips and impact scores
+   - What-If is integrated into clause cards  
+
+> [!NOTE]
+> Since there are no existing automated tests in this project, verification will be done via backend startup checks, frontend compilation, and browser-based visual inspection.

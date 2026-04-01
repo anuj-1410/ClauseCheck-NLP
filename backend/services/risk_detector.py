@@ -4,19 +4,23 @@ Detects risky clauses in legal documents using pattern matching
 AND semantic similarity analysis via multilingual sentence-transformers.
 
 Upgrades:
-  - Added semantic similarity using paraphrase-multilingual-mpnet-base-v2
+    - Added semantic similarity using multilingual sentence-transformers
   - Cross-lingual risk detection: Hindi clause ↔ English prototypes
   - Regex patterns kept as primary; semantic layer is additive
 """
 
 import re
 import logging
+import threading
 from typing import List, Dict, Any
+
+from config import SEMANTIC_EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
 # Lazy-loaded semantic model
 _semantic_model = None
+_semantic_model_lock = threading.Lock()
 
 # ──────────────────────────────────────────────
 # Risk patterns with categories and severity
@@ -192,15 +196,15 @@ def _get_semantic_model():
     """Lazy-load sentence-transformer model for semantic similarity."""
     global _semantic_model
     if _semantic_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            _semantic_model = SentenceTransformer(
-                "paraphrase-multilingual-mpnet-base-v2"
-            )
-            logger.info("Semantic risk model (multilingual mpnet) loaded.")
-        except Exception as e:
-            logger.warning(f"Failed to load semantic model: {e}. Semantic risk detection disabled.")
-            _semantic_model = False  # Mark as failed, don't retry
+        with _semantic_model_lock:
+            if _semantic_model is None:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    _semantic_model = SentenceTransformer(SEMANTIC_EMBEDDING_MODEL)
+                    logger.info("Semantic risk model loaded: %s", SEMANTIC_EMBEDDING_MODEL)
+                except Exception as e:
+                    logger.warning(f"Failed to load semantic model: {e}. Semantic risk detection disabled.")
+                    _semantic_model = False  # Mark as failed, don't retry
     return _semantic_model if _semantic_model is not False else None
 
 

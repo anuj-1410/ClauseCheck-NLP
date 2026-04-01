@@ -4,13 +4,15 @@ Extracts parties, dates, monetary values, durations, and legal references
 using spaCy (English) and Stanza (Hindi).
 
 Upgrades:
-  - English: en_core_web_trf (transformer-based) with fallback to en_core_web_sm
+    - English: configurable spaCy model (default: en_core_web_sm)
   - Hindi: Stanza NER + Legal regex + Legal gazetteer dictionary (Layer 1-3)
 """
 
 import re
 import logging
 from typing import List, Dict, Any, Optional
+
+from config import SPACY_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -58,20 +60,15 @@ HINDI_LEGAL_PATTERNS = [
 
 
 def _get_spacy():
-    """Lazy-load spaCy English model. Prefer en_core_web_trf, fallback to en_core_web_sm."""
+    """Lazy-load the configured spaCy English model."""
     global _spacy_nlp
     if _spacy_nlp is None:
         try:
             import spacy
-            # Try transformer model first
-            try:
-                _spacy_nlp = spacy.load("en_core_web_trf")
-                logger.info("spaCy en_core_web_trf (transformer) model loaded.")
-            except OSError:
-                _spacy_nlp = spacy.load("en_core_web_sm")
-                logger.info("en_core_web_trf not found. Using en_core_web_sm fallback.")
+            _spacy_nlp = spacy.load(SPACY_MODEL)
+            logger.info("spaCy model loaded for entity extraction: %s", SPACY_MODEL)
         except Exception as e:
-            logger.error(f"Failed to load spaCy model: {e}")
+            logger.error("Failed to load spaCy model %s: %s", SPACY_MODEL, e)
             return None
     return _spacy_nlp
 

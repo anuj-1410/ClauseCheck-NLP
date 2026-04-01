@@ -29,6 +29,10 @@ export default function ResultsPage() {
 
     const handleTranslate = async (targetLang) => {
         if (!result) return;
+        const currentDisplayLanguage = result.display_language || result.language;
+        const targetLabel = targetLang === 'hi' ? 'Hindi' : 'English';
+        if (currentDisplayLanguage === targetLabel) return;
+
         setTranslating(true);
         try {
             const formData = new FormData();
@@ -38,8 +42,8 @@ export default function ResultsPage() {
                 method: 'POST',
                 body: formData,
             });
-            if (!res.ok) throw new Error('Translation failed');
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || 'Translation failed');
             setResult(data.result);
             sessionStorage.setItem(`result_${id}`, JSON.stringify(data.result));
         } catch (err) { alert(err.message); }
@@ -111,7 +115,9 @@ export default function ResultsPage() {
     const plainEnglish = ca?.plain_english || [];
     const jurisdictionInfo = ca?.jurisdiction || {};
     const contractTypeInfo = ca?.contract_type || {};
-    const extractedImages = result.extracted_images || [];
+    const extractedImages = result.extracted_images || ca?.extracted_images || [];
+    const documentLanguage = result.document_language || result.language;
+    const displayLanguage = result.display_language || documentLanguage;
 
     const riskColor = result.risk_score > 60 ? '#f87171' : result.risk_score > 30 ? '#fbbf24' : '#4ade80';
     const complianceColor = result.compliance_score >= 70 ? '#4ade80' : result.compliance_score >= 40 ? '#fbbf24' : '#f87171';
@@ -148,11 +154,11 @@ export default function ResultsPage() {
                     </div>
                     <div className="results-meta">
                         <span className="meta-badge"><IconFile size={14} /> {result.document_name}</span>
-                        <span className="meta-badge"><IconGlobe size={14} /> {result.language}</span>
+                        <span className="meta-badge"><IconGlobe size={14} /> {documentLanguage}</span>
                         
                         <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.05)', borderRadius: 20, padding: 3, verticalAlign: 'middle', border: '1px solid rgba(255,255,255,0.1)' }}>
-                            <button style={{ background: result.language === 'English' ? 'var(--accent-blue)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: result.language === 'English' ? 600 : 400, opacity: translating && result.language !== 'English' ? 0.5 : 1 }} onClick={() => handleTranslate('en')} disabled={translating || result.language === 'English'}>EN</button>
-                            <button style={{ background: result.language === 'Hindi' ? 'var(--accent-amber)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: result.language === 'Hindi' ? 600 : 400, opacity: translating && result.language !== 'Hindi' ? 0.5 : 1 }} onClick={() => handleTranslate('hi')} disabled={translating || result.language === 'Hindi'}>HI</button>
+                            <button style={{ background: displayLanguage === 'English' ? 'var(--accent-blue)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: displayLanguage === 'English' ? 600 : 400, opacity: translating && displayLanguage !== 'English' ? 0.5 : 1 }} onClick={() => handleTranslate('en')} disabled={translating || displayLanguage === 'English'}>EN</button>
+                            <button style={{ background: displayLanguage === 'Hindi' ? 'var(--accent-amber)' : 'transparent', border: 'none', color: '#fff', borderRadius: 16, padding: '4px 10px', fontSize: '0.75rem', cursor: translating ? 'wait' : 'pointer', fontWeight: displayLanguage === 'Hindi' ? 600 : 400, opacity: translating && displayLanguage !== 'Hindi' ? 0.5 : 1 }} onClick={() => handleTranslate('hi')} disabled={translating || displayLanguage === 'Hindi'}>HI</button>
                         </div>
                         
                         {jurisdictionInfo.name && <span className="meta-badge"><IconScale size={14} /> {jurisdictionInfo.name}</span>}

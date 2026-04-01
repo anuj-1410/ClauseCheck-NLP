@@ -5,6 +5,7 @@ Generates professional PDF reports using reportlab.
 
 import io
 import logging
+from html import escape
 from typing import Dict, Any
 from datetime import datetime
 
@@ -80,7 +81,7 @@ def generate_pdf_report(result: Dict[str, Any]) -> bytes:
     elements = []
 
     # ── Title ──
-    elements.append(Paragraph("⚖️ ClauseCheck Analysis Report", title_style))
+    elements.append(Paragraph("ClauseCheck Analysis Report", title_style))
     elements.append(Spacer(1, 4))
     elements.append(HRFlowable(width="100%", thickness=2, color=HexColor("#3b82f6")))
     elements.append(Spacer(1, 12))
@@ -137,58 +138,62 @@ def generate_pdf_report(result: Dict[str, Any]) -> bytes:
     elements.append(Spacer(1, 16))
 
     # ── Summary ──
-    elements.append(Paragraph("📋 Executive Summary", heading_style))
+    elements.append(Paragraph("Executive Summary", heading_style))
     summary = result.get("summary", "No summary available.")
-    elements.append(Paragraph(summary, body_style))
+    elements.append(Paragraph(_format_report_text(summary), body_style))
 
     ca = result.get("clause_analysis", {})
     explanations = ca.get("explanations", {})
     overall = explanations.get("overall_summary", "")
     if overall:
         elements.append(Spacer(1, 6))
-        elements.append(Paragraph(f"<b>Assessment:</b> {overall}", body_style))
+        elements.append(Paragraph(f"<b>Assessment:</b> {_format_report_text(overall)}", body_style))
 
     # ── Risk Findings ──
     risks = ca.get("risks", [])
     if risks:
-        elements.append(Paragraph(f"🔍 Risk Analysis ({len(risks)} findings)", heading_style))
+        elements.append(Paragraph(f"Risk Analysis ({len(risks)} findings)", heading_style))
         for r in risks:
             sev = r.get("severity", "medium").upper()
             sev_color = "#ef4444" if sev == "HIGH" else ("#f59e0b" if sev == "MEDIUM" else "#22c55e")
+            risk_type = escape(r.get("risk_type", "").replace("_", " ").title())
+            description = _format_report_text(r.get("description", ""))
             elements.append(Paragraph(
                 f'<font color="{sev_color}"><b>[{sev}]</b></font> '
-                f'{r.get("risk_type", "").replace("_", " ").title()} — '
-                f'{r.get("description", "")}',
+                f'{risk_type} - '
+                f'{description}',
                 body_style
             ))
             if r.get("clause_text"):
                 elements.append(Paragraph(
-                    f'<i>"{r["clause_text"][:200]}..."</i>', small_style
+                    f'<i>"{_format_report_text(r["clause_text"][:200])}..."</i>', small_style
                 ))
             elements.append(Spacer(1, 4))
 
     # ── Compliance Checklist ──
     comp_details = ca.get("compliance", {}).get("details", [])
     if comp_details:
-        elements.append(Paragraph("✅ Compliance Checklist", heading_style))
+        elements.append(Paragraph("Compliance Checklist", heading_style))
         for item in comp_details:
             check = "✓" if item.get("found") else "✗"
             color = "#22c55e" if item.get("found") else "#ef4444"
+            clause_label = escape(item.get("clause_type", "").replace("_", " ").title())
+            description = _format_report_text(item.get("description", ""))
             elements.append(Paragraph(
                 f'<font color="{color}"><b>{check}</b></font> '
-                f'{item.get("clause_type", "").replace("_", " ").title()} — '
-                f'{item.get("description", "")}',
+                f'{clause_label} - '
+                f'{description}',
                 body_style
             ))
 
     # ── Obligations ──
     obligations = ca.get("obligations", [])
     if obligations:
-        elements.append(Paragraph(f"📌 Key Obligations ({len(obligations)})", heading_style))
+        elements.append(Paragraph(f"Key Obligations ({len(obligations)})", heading_style))
         for obl in obligations[:15]:
             strength = obl.get("strength", "").upper()
             elements.append(Paragraph(
-                f'<b>[{strength}]</b> {obl.get("text", "")[:200]}', body_style
+                f'<b>[{strength}]</b> {_format_report_text(obl.get("text", "")[:200])}', body_style
             ))
 
     # ── Footer ──
@@ -203,3 +208,9 @@ def generate_pdf_report(result: Dict[str, Any]) -> bytes:
 
     doc.build(elements)
     return buffer.getvalue()
+
+
+def _format_report_text(text: Any) -> str:
+    """Escape raw text so it can be safely rendered inside reportlab paragraphs."""
+    safe_text = escape(str(text or ""))
+    return safe_text.replace("\n\n", "<br/><br/>").replace("\n", "<br/>")

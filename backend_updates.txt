@@ -1,0 +1,144 @@
+---
+
+### 1.1 Replace `en_core_web_trf` → `en_core_web_sm`
+
+**Files Affected:** `entity_extractor.py`, `obligation_detector.py`, `responsibility_detector.py`
+
+**Current State:**
+- Using `en_core_web_trf` (spaCy Transformer Model with RoBERTa)
+- Used for: tokenization, POS tagging, NER, dependency parsing
+
+**Problem:**
+- You are NOT using transformer embeddings or deep contextual NER features
+- You are only using: dependency labels (`nsubj`, `dobj`), basic entity labels, token-level parsing
+- You already use `sentence-transformers` for semantic understanding
+- Running both = duplicate transformer stacks in memory (~unnecessary overhead)
+
+**Action:**
+- Replace `en_core_web_trf` with `en_core_web_sm` across all three files
+- `en_core_web_sm` is fully sufficient for your actual usage (dependency labels + basic NER)
+
+**Result:** Faster load times, lower RAM usage, no loss of functionality
+
+---
+
+### 1.2 Replace `paraphrase-multilingual-mpnet-base-v2` → `paraphrase-multilingual-MiniLM-L12-v2`
+
+**Files Affected:** `risk_detector.py`, `contract_comparator.py`
+
+**Current State:**
+- Using MPNet model (~400–500MB) for semantic similarity detection
+- Used for: paraphrased risk detection, clause comparison, cross-lingual matching (Hindi ↔ English)
+
+**Problem:**
+- MPNet is unnecessarily heavy for your use case
+- High RAM consumption, slower inference
+
+**Why Semantic Embedding Is Still Needed:**
+```
+Clause:   "The consultant shall bear unlimited financial responsibility."
+Prototype: "Unlimited liability clause."
+Regex:     ❌ Fails
+Embedding: ✅ Succeeds
+```
+
+**Action:**
+- Replace with `paraphrase-multilingual-MiniLM-L12-v2`
+- Same purpose, same multilingual support, much lighter, faster
+
+**Result:** Same semantic capability, significantly reduced model size and inference time
+
+---
+
+### 1.3 Clause Segmenter — Minor Fix
+
+**File:** `clause_segmenter.py`
+
+**What Is Working Well (Keep As-Is):**
+- English numbering patterns
+- Hindi numbering patterns (धारा, अनुच्छेद, खंड)
+- Section-first strategy with sentence segmentation fallback
+- Short-clause merge logic
+- Bilingual, layout-aware
+
+**Current Issue:**
+```python
+# Fragile heuristic:
+if b["start"] - filtered[-1]["start"] > 20
+```
+The `20-char` gap check is unreliable.
+
+**Fix:**
+- Replace with actual range intersection check to detect overlapping boundaries
+
+**Current Score:** 9/10 — solid architecture, minor fix only
+
+---
+
+### 1.4 Compliance Checker — Structural Upgrade
+
+**File:** `compliance_checker.py`
+
+**What Was Improved:**
+- Structural validation
+- Clause quality checks
+- Hindi structural validation
+- Weight-based scoring
+- Compliance now = presence × structure (not just presence)
+
+**Remaining Issue:**
+- Structural checks still rely on regex
+- Example failure: `"notice of \d+ days"` regex misses `"Thirty days prior written notice"`
+
+**Suggested Upgrade:**
+- Add embedding similarity for structural element detection alongside existing regex
+
+**Current Score:** 8.5/10 — strong for rule-based, embedding addition would make it near-perfect
+
+---
+
+### 1.5 Contract Comparator — Threshold Tuning
+
+**File:** `contract_comparator.py`
+
+**What Is Working Well:**
+- Multilingual embedding model
+- Lazy loading
+- Lexical fallback
+- Risk delta + compliance delta
+- Power shift messaging
+
+**Current Issue:**
+```python
+SIMILARITY_THRESHOLD = 0.4
+SEMANTIC_THRESHOLD = 0.55   # Too low for legal text
+```
+`0.55` may produce false semantic matches in legal context.
+
+**Fix:**
+- Raise `SEMANTIC_THRESHOLD` to `0.70–0.75` for legal text accuracy
+
+**Current Score:** 9/10 — production-ready after threshold tuning
+
+---
+
+### 1.6 Risk Detector — Threshold Tuning
+
+**File:** `risk_detector.py`
+
+**What Is Working Well:**
+- Regex detection
+- Semantic similarity
+- Multilingual embeddings
+- Cross-lingual support (Hindi + English)
+
+**Remaining Issue:**
+- Similarity threshold not explicitly tuned
+- If threshold is too low → false positive risks detected
+
+**Fix:**
+- Carefully tune similarity threshold (recommend starting at `0.70`, adjust based on testing)
+
+**Current Score:** 9.5/10 — architecture is excellent
+
+---

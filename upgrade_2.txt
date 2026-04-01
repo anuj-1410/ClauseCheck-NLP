@@ -1,0 +1,730 @@
+1️⃣ CLAUSES TAB — From List → Risk Heatmap Navigator
+🔹 Current Scenario
+
+Just segmented clauses
+
+Plain list
+
+No prioritization
+
+This is structural, not strategic.
+
+🔹 Upgrade Logic (Backend)
+
+Use:
+
+risk_detector
+
+responsibility_detector
+
+ambiguity_detector
+
+For each clause compute:
+
+{
+  "risk_score": 0-100,
+  "ambiguity_count": n,
+  "obligation_count": n,
+  "severity": "low | medium | high"
+}
+
+Create a Clause Impact Score:
+
+impact_score = (risk_weight * risk_score)
+             + (ambiguity_weight * ambiguity_count)
+             + (obligation_weight * obligation_count)
+🔹 Redesign
+
+Instead of plain cards:
+
+Add:
+
+🔴 Red border for high-risk clauses
+
+🟡 Yellow for medium
+
+🟢 Green for safe
+
+Filter toggle: “Show only high-risk clauses”
+
+Mini progress bar inside each clause card
+
+🔹 Result
+
+User instantly sees:
+
+Where should I focus?
+
+This becomes a navigation heatmap.
+
+2️⃣ PLAIN ENGLISH TAB — From Simplification → Transparency Engine
+🔹 Current
+
+Shows simplified version
+
+No measurable value
+
+🔹 Upgrade Logic
+
+From obligation_detector:
+
+You already detect passive voice.
+
+Add:
+
+Passive → Active rewrite
+
+Sentence complexity score (based on length + conjunction count)
+
+Compute:
+
+complexity_reduction_percentage
+🔹 Redesign
+
+For each clause show:
+
+Original:
+“The services shall be delivered...”
+
+Plain English:
+“You must deliver the services.”
+
+Below it:
+
+Simplified by: 58%
+Passive voice removed
+Long sentence split into 2
+
+🔹 Result
+
+This becomes:
+
+Legal clarity analyzer
+
+3️⃣ RISKS TAB — From Warning → Negotiation Toolkit
+🔹 Current
+
+Lists risks
+
+Basic description
+
+🔹 Upgrade Logic
+
+For each risk:
+
+Add:
+
+Legal Impact Category:
+
+Financial
+
+Operational
+
+IP
+
+Reputational
+
+Estimated Exposure:
+
+Unlimited
+
+Capped
+
+Undefined
+
+Suggested Fix Template
+
+Example:
+
+If unlimited liability detected:
+
+Suggest:
+
+"The total liability of either party shall not exceed..."
+🔹 Redesign
+
+Each risk card should include:
+
+Risk Level: High
+Impact: Financial
+Exposure: Unlimited
+
+💡 Suggested Fix (copy button)
+
+🔹 Result
+
+Now it becomes:
+
+Negotiation assistant
+
+Not just risk detection.
+
+4️⃣ AMBIGUITY TAB — From Detection → Precision Engine
+🔹 Current
+
+Lists vague terms
+
+Lists passive voice
+
+🔹 Upgrade Logic
+
+Map vague terms:
+
+reasonable → define objective criteria
+promptly → suggest time window
+best efforts → suggest measurable obligation
+
+🔹 Redesign
+
+Each vague term becomes interactive:
+
+Detected:
+“Promptly”
+
+Suggested precision:
+“Within 48 hours”
+
+Button:
+Replace Preview
+
+🔹 Result
+
+This becomes:
+
+Contract hardening tool
+
+5️⃣ TIMELINE TAB — From Extracted Dates → Contract Lifecycle
+🔹 Current
+
+Dates
+
+Durations
+
+Notice
+
+No intelligence.
+
+🔹 Upgrade Logic
+
+From:
+
+timeline_extractor
+
+obligation_detector
+
+compliance
+
+Calculate:
+
+End date
+
+Notice deadline
+
+Renewal deadline
+
+Post-termination obligations end date
+
+Example:
+
+Start: 01 Jan 2025
+Duration: 12 months
+→ End: 31 Dec 2025
+
+Notice: 30 days
+→ Notice deadline: 01 Dec 2025
+
+Confidentiality: 3 years
+→ Ends: 31 Dec 2028
+
+🔹 Redesign
+
+Instead of vertical date list:
+
+Show Lifecycle Blocks
+
+Contract Active Period
+Termination Window
+Post-Termination Obligations
+
+Highlight upcoming deadlines.
+
+🔹 Result
+
+Now timeline answers:
+
+When do I need to act?
+
+6️⃣ ENTITIES TAB — From List → Exposure Summary
+🔹 Current
+
+Lists parties
+
+Lists money
+
+Lists durations
+
+Messy.
+
+🔹 Upgrade Logic
+
+Add:
+
+Role Inference
+
+Based on obligations:
+
+If party has service obligations → Provider
+If party pays → Client
+
+Financial Aggregation
+
+If monthly payment and duration:
+
+total_value = monthly * months
+Liability Cap Detection
+
+Check if liability cap exists.
+
+🔹 Redesign
+
+Primary Parties:
+
+ABC Tech Solutions Pvt Ltd → Client
+Rajesh Sharma → Consultant
+
+Financial Summary:
+
+Monthly: ₹75,000
+Duration: 12 months
+Total Value: ₹9,00,000
+
+Liability Cap: Not defined
+
+🔹 Result
+
+This becomes:
+
+Financial exposure dashboard
+
+7️⃣ OBLIGATIONS TAB — From List → Burden Gauge
+🔹 Current
+
+Lists obligations
+
+Mandatory vs optional
+
+🔹 Upgrade Logic
+
+Count:
+
+Consultant obligations
+Company obligations
+
+Compute:
+
+burden_ratio = consultant / total
+
+Also detect:
+
+Unilateral indemnity
+Unilateral termination
+Unilateral liability
+
+🔹 Redesign
+
+Add visual:
+
+Responsibility Split:
+
+Consultant ██████████ 78%
+Company ██ 22%
+
+Imbalance Level: High
+
+🔹 Result
+
+This becomes:
+
+Power imbalance analyzer
+
+8️⃣ COMPLIANCE TAB — From Presence → Protection Analysis
+🔹 Current
+
+✔ Present
+❌ Missing
+
+Generic notes.
+
+🔹 Upgrade Logic
+
+For each clause:
+
+Check:
+
+Present?
+
+Balanced?
+
+Enforceable?
+
+Structured properly?
+
+For missing:
+
+Show worst-case scenario.
+
+Example:
+
+Missing Force Majeure:
+
+Risk:
+You may be liable for delays caused by natural disasters.
+
+Priority: High
+
+🔹 Redesign
+
+Instead of checkmark list:
+
+Clause → Status → Risk Level → Consequence
+
+🔹 Result
+
+Becomes:
+
+Protection gap analysis
+
+🚀 GOAL
+
+Transform this:
+
+Horizontal tabs → static data display
+
+Into:
+
+Context-aware intelligence dashboard → interactive contract workspace
+
+🔥 CURRENT PROBLEM (Your UI)
+
+From the screenshots:
+
+Tabs are horizontal
+
+Each tab shows extracted data
+
+Everything feels isolated
+
+No hierarchy of importance
+
+No “action-oriented” UX
+
+No contextual linking between text and insights
+
+It feels like a report viewer.
+
+You need a contract intelligence workspace.
+
+🧠 FINAL REDESIGN ARCHITECTURE
+
+We will redesign into:
+
+🏗 Layout Structure
+---------------------------------------------------------
+| Header (Contract Health, Risk, Balance, Gaps)        |
+---------------------------------------------------------
+| Sidebar | Contract Text | Insight Panel              |
+| 20%     | 50%           | 30%                        |
+---------------------------------------------------------
+
+This replaces static horizontal tabs.
+
+🔥 1️⃣ QUICK ACTION HEADER (Above Everything)
+Purpose:
+
+Immediate strategic snapshot.
+
+Replace Current:
+
+Just gauge + summary text.
+
+New Header Design
+A. Safety Score (Large Circular Gauge)
+
+Derived from:
+
+Risk
+
+Imbalance
+
+Compliance
+
+Exposure
+
+Example:
+
+Contract Health: 72/100
+Status: Moderate Risk
+
+B. Responsibility Tug-of-War Bar
+
+Consultant ████████ 78%
+Company ██ 22%
+
+C. Critical Gaps Indicator
+
+🔔 2 Missing Essential Clauses
+🔴 1 High Severity Risk
+
+Clickable.
+
+D. Financial Exposure Badge
+
+Total Contract Value: ₹9,00,000
+Liability Cap: Not Defined
+
+This makes the top area strategic.
+
+🔥 2️⃣ REPLACE HORIZONTAL TABS → LEFT VERTICAL NAVIGATION
+
+Instead of:
+
+Clauses | Risks | Ambiguity | Timeline | Entities | Obligations | Compliance
+
+Move to:
+
+Left Sidebar Navigation
+
+Icons + Labels + Severity Badges
+
+Example:
+
+📄 Clauses (12)
+⚠ Risks (3) 🔴
+❓ Ambiguity (7)
+⏳ Timeline (17)
+👥 Entities (27)
+⚖ Obligations (18)
+🛡 Compliance (2 Missing) 🔴
+
+This instantly shows importance.
+
+🔥 3️⃣ CENTER PANEL — ACTIVE DOCUMENT VIEW
+
+Instead of tab-based data switching:
+
+Center = Contract Text
+
+When user clicks clause in sidebar:
+
+→ Scroll to that clause in text
+→ Highlight it
+
+As user scrolls:
+
+→ Right panel updates dynamically
+
+This creates contextual intelligence.
+
+🔥 4️⃣ RIGHT PANEL — DYNAMIC INSIGHT FEED
+
+This replaces static tab content.
+
+Instead of switching whole page:
+
+Right panel shows:
+
+Insight Cards relevant to current clause.
+
+Example
+
+User clicks “Clause 5 – Liability”
+
+Right panel shows:
+
+🔴 High Risk: Unlimited liability
+⚠ No liability cap detected
+💡 Suggested Fix
+📊 Financial Exposure Impact
+
+If user scrolls to termination clause:
+
+Right panel updates:
+
+✔ Mutual termination
+⚠ No cure period
+⏳ Notice deadline: 01 Dec 2025
+
+This makes system feel alive.
+
+🔥 TAB REDESIGN (DETAIL VIEW MODE)
+
+If you still want dedicated tabs (for mobile or simplified mode), redesign each like this:
+
+📄 CLAUSES TAB — Risk Heatmap View
+
+Instead of vertical cards:
+
+Add:
+
+Risk color strip on left
+
+Severity label
+
+Impact icons (Financial, IP, Time)
+
+Filter dropdown
+
+Layout:
+
+[🔴 High] Clause 5 – Liability
+Impact: 💰 Financial
+Exposure: Unlimited
+
+⚠ RISKS TAB — Negotiation Dashboard
+
+Each card includes:
+
+Risk Severity
+Impact Category
+Exposure Level
+Suggested Fix (copy button)
+Legal Explanation
+Confidence Score
+
+Add:
+Filter by impact type.
+
+❓ AMBIGUITY TAB — Precision Assistant
+
+For each issue:
+
+Detected phrase
+Why vague
+Suggested rewrite
+Preview comparison
+
+Add “Apply suggestion” simulation view.
+
+⏳ TIMELINE TAB — Lifecycle Visualizer
+
+Instead of vertical list:
+
+Add:
+
+Horizontal time rail.
+
+Sections:
+
+Active Period
+Termination Window
+Post-Termination Obligations
+
+Critical deadlines in red.
+
+👥 ENTITIES TAB — Relationship Dashboard
+
+Instead of lists:
+
+Show:
+
+Party A → Client
+Party B → Consultant
+
+Financial Summary Box:
+
+Monthly
+Duration
+Total Value
+
+Liability Exposure Indicator
+
+⚖ OBLIGATIONS TAB — Burden Analyzer
+
+Add:
+
+Obligation Distribution Chart
+Top 5 Critical Obligations
+Unilateral vs Mutual breakdown
+
+🛡 COMPLIANCE TAB — Protection Gap View
+
+Instead of checkmarks:
+
+Each clause shows:
+
+Status
+Risk Level
+Worst Case Scenario
+Priority Level
+
+Missing clauses grouped at top.
+
+🔥 5️⃣ WHAT-IF INTEGRATION
+
+Remove “What-If” as static tab.
+
+Instead:
+
+Each ClauseCard has:
+
+✏ Edit & Re-Analyze
+
+When clicked:
+
+Opens split editor
+Recalculate only that clause
+Show:
+
+Score Before → Score After
+
+🔥 6️⃣ EXPORT PANEL
+
+Add at bottom:
+
+“Generate Negotiation Email”
+
+Auto formats:
+
+Subject
+Clause reference
+Issue
+Proposed change
+
+🎨 VISUAL IMPROVEMENTS
+
+Your current UI is clean but flat.
+
+Upgrade with:
+
+Subtle glow on high-risk cards
+
+Severity color gradient edges
+
+Animated severity pulse for critical issues
+
+Depth shadows on insight cards
+
+Hover tilt effect
+
+Animated sidebar indicator
+
+Keep dark theme but add contrast differentiation.
+
+🏆 FINAL RESULT
+
+Your product becomes:
+
+Not:
+
+“Contract analyzer”
+
+But:
+
+“AI Contract Intelligence Workspace”
+
+Where:
+
+User reads contract
+Insights update dynamically
+Actions are suggested
+Negotiation assistance is embedded

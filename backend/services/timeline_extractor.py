@@ -219,6 +219,40 @@ def extract_timeline(
             "parsed_date": parsed,
         })
 
+    clause_sections = {
+        clause.get("id"): clause.get("section_number", "")
+        for clause in clauses
+    }
+
+    for obligation in obligations:
+        deadline_text = (obligation.get("deadline") or "").strip()
+        if not deadline_text:
+            continue
+
+        clause_id = obligation.get("clause_id")
+        parsed = _normalize_date(deadline_text)
+        if parsed is None and language == "hi":
+            parsed = _normalize_hindi_date(deadline_text)
+
+        party = obligation.get("party", "")
+        action = obligation.get("action", "")
+        if party and action:
+            description = f"Obligation deadline: {party} must {action}"
+        elif action:
+            description = f"Obligation deadline: {action}"
+        else:
+            description = f"Obligation deadline: {deadline_text}"
+
+        events.append(_build_event(
+            deadline_text,
+            "deadline",
+            clause_id,
+            clause_sections.get(clause_id, ""),
+            description,
+            (obligation.get("text") or "")[:150],
+            parsed_date=parsed,
+        ))
+
     # Deduplicate
     events = _deduplicate_events(events)
 

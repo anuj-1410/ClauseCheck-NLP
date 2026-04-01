@@ -10,11 +10,13 @@ Upgrades:
 """
 
 import logging
+import threading
 from difflib import SequenceMatcher
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 import numpy as np
 
+from config import SEMANTIC_EMBEDDING_MODEL
 from services.clause_segmenter import segment_clauses
 from services.risk_detector import detect_risks, calculate_overall_risk_score
 from services.compliance_checker import check_compliance
@@ -22,32 +24,34 @@ from services.compliance_checker import check_compliance
 logger = logging.getLogger(__name__)
 
 SIMILARITY_THRESHOLD = 0.4  # Below this = completely different clauses
-SEMANTIC_THRESHOLD = 0.55   # Semantic similarity threshold
+SEMANTIC_THRESHOLD = 0.70   # Raised for legal clause matching to reduce false positives
 
 # Lazy-loaded semantic model
 _embed_model = None
+_embed_model_lock = threading.Lock()
 
 
 def _get_embedding_model():
     """Lazy-load sentence-transformer model for semantic comparison."""
     global _embed_model
     if _embed_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            _embed_model = SentenceTransformer(
-                "paraphrase-multilingual-mpnet-base-v2"
-            )
-            logger.info("Semantic model loaded for contract comparison.")
-        except Exception as e:
-            logger.warning(f"Failed to load semantic model: {e}. Using lexical fallback.")
-            _embed_model = False  # Mark as failed
+        with _embed_model_lock:
+            if _embed_model is None:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    _embed_model = SentenceTransformer(SEMANTIC_EMBEDDING_MODEL)
+                    logger.info("Semantic comparison model loaded: %s", SEMANTIC_EMBEDDING_MODEL)
+                except Exception as e:
+                    logger.warning(f"Failed to load semantic model: {e}. Using lexical fallback.")
+                    _embed_model = False  # Mark as failed
     return _embed_model if _embed_model is not False else None
 
 
 def compare_contracts(
     text1: str, text2: str,
     name1: str = "Document 1", name2: str = "Document 2",
-    language: str = "en"
+    language1: str = "en",
+    language2: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Compare two contract texts clause-by-clause.
@@ -62,17 +66,19 @@ def compare_contracts(
         - compliance_delta: change in compliance score
         - summary: overall comparison summary
     """
-    clauses1 = segment_clauses(text1, language)
-    clauses2 = segment_clauses(text2, language)
+    language2 = language2 or language1
+
+    clauses1 = segment_clauses(text1, language1)
+    clauses2 = segment_clauses(text2, language2)
 
     # Analyze risks for both
-    risks1 = detect_risks(clauses1, language)
-    risks2 = detect_risks(clauses2, language)
+    risks1 = detect_risks(clauses1, language1)
+    risks2 = detect_risks(clauses2, language2)
     risk_score1 = calculate_overall_risk_score(risks1)
     risk_score2 = calculate_overall_risk_score(risks2)
 
-    compliance1 = check_compliance(clauses1, text1, language)
-    compliance2 = check_compliance(clauses2, text2, language)
+    compliance1 = check_compliance(clauses1, text1, language1)
+    compliance2 = check_compliance(clauses2, text2, language2)
 
     # Match clauses between documents (semantic or lexical)
     matches = _match_clauses(clauses1, clauses2)
@@ -144,9 +150,11 @@ def compare_contracts(
 
     return {
         "document1": {"name": name1, "clause_count": len(clauses1),
-                       "risk_score": risk_score1, "compliance_score": compliance1["compliance_score"]},
+                   "risk_score": risk_score1, "compliance_score": compliance1["compliance_score"],
+                   "language": language1},
         "document2": {"name": name2, "clause_count": len(clauses2),
-                       "risk_score": risk_score2, "compliance_score": compliance2["compliance_score"]},
+                   "risk_score": risk_score2, "compliance_score": compliance2["compliance_score"],
+                   "language": language2},
         "added": added,
         "removed": removed,
         "modified": modified,

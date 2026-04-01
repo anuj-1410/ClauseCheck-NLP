@@ -12,6 +12,8 @@ import re
 import logging
 from typing import List, Dict, Any
 
+from config import SPACY_MODEL
+
 logger = logging.getLogger(__name__)
 
 # Global NLP model references
@@ -73,13 +75,10 @@ def _get_spacy():
     if _spacy_nlp is None:
         try:
             import spacy
-            try:
-                _spacy_nlp = spacy.load("en_core_web_trf")
-            except OSError:
-                _spacy_nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy model loaded for responsibility detection.")
+            _spacy_nlp = spacy.load(SPACY_MODEL)
+            logger.info("spaCy model loaded for responsibility detection: %s", SPACY_MODEL)
         except Exception as e:
-            logger.error(f"Failed to load spaCy: {e}")
+            logger.error("Failed to load spaCy model %s: %s", SPACY_MODEL, e)
             _spacy_nlp = False  # Mark as failed
     return _spacy_nlp if _spacy_nlp is not False else None
 

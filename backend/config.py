@@ -8,6 +8,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _get_bool_env(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment flag."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
 # ──────────────────────────────────────────────
 # Supabase
 # ──────────────────────────────────────────────
@@ -20,12 +28,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # ──────────────────────────────────────────────
-# Tesseract OCR
+# OCR Runtime
 # ──────────────────────────────────────────────
-TESSERACT_PATH = os.getenv(
-    "TESSERACT_PATH",
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-)
+PADDLEOCR_USE_GPU = _get_bool_env("PADDLEOCR_USE_GPU", default=False)
 
 # ──────────────────────────────────────────────
 # Upload Constraints
@@ -37,5 +42,6 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 # ──────────────────────────────────────────────
 # NLP Model Flags
 # ──────────────────────────────────────────────
-SPACY_MODEL = "en_core_web_trf"  # Falls back to en_core_web_sm if not installed
+SPACY_MODEL = "en_core_web_sm"
 STANZA_LANG = "hi"
+SEMANTIC_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"

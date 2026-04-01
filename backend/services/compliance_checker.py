@@ -12,7 +12,7 @@ Upgrades:
 
 import re
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -270,11 +270,176 @@ HINDI_STRUCTURAL_VALIDATORS = {
     },
 }
 
+ADDITIONAL_CLAUSES = {
+    "data_protection": {
+        "keywords": ["data protection", "privacy", "personal data", "data processing", "gdpr", "ccpa"],
+        "weight": 9,
+        "description": "Data protection clause – governs personal data handling and privacy obligations"
+    },
+    "stamp_duty": {
+        "keywords": ["stamp duty", "stamping", "e-stamp", "stamp paper", "non-judicial stamp"],
+        "weight": 7,
+        "description": "Stamp duty clause – addresses stamping and execution compliance"
+    },
+    "non_compete": {
+        "keywords": ["non-compete", "non compete", "restrictive covenant", "restraint of trade"],
+        "weight": 6,
+        "description": "Non-compete clause – restricts competitive activity after or during the contract"
+    },
+    "benefits": {
+        "keywords": ["benefits", "bonus", "insurance", "leave", "provident fund", "gratuity"],
+        "weight": 6,
+        "description": "Benefits clause – defines employee or contractor benefit entitlements"
+    },
+    "duration": {
+        "keywords": ["term of this agreement", "duration", "period of", "effective until", "valid for"],
+        "weight": 6,
+        "description": "Duration clause – defines how long the contract remains in force"
+    },
+    "scope": {
+        "keywords": ["scope of work", "scope", "services", "statement of work"],
+        "weight": 6,
+        "description": "Scope clause – defines the covered services, work, or obligations"
+    },
+    "exclusions": {
+        "keywords": ["excluding", "exclusions", "does not include", "shall not include"],
+        "weight": 5,
+        "description": "Exclusions clause – defines what is outside the agreed scope"
+    },
+    "return_of_materials": {
+        "keywords": ["return of materials", "return all materials", "destroy all copies", "delete all copies"],
+        "weight": 5,
+        "description": "Return of materials clause – governs return or destruction of provided material"
+    },
+    "deliverables": {
+        "keywords": ["deliverables", "milestones", "work product", "deliver the services"],
+        "weight": 6,
+        "description": "Deliverables clause – defines outputs or milestones the provider must deliver"
+    },
+    "delivery_schedule": {
+        "keywords": ["delivery schedule", "delivery date", "project timeline", "milestone schedule"],
+        "weight": 5,
+        "description": "Delivery schedule clause – defines planned delivery timing or milestones"
+    },
+    "acceptance_criteria": {
+        "keywords": ["acceptance criteria", "acceptance", "deemed accepted", "rejection of deliverables"],
+        "weight": 5,
+        "description": "Acceptance criteria clause – defines when deliverables are accepted or rejected"
+    },
+    "security_deposit": {
+        "keywords": ["security deposit", "deposit amount", "refundable deposit"],
+        "weight": 6,
+        "description": "Security deposit clause – defines deposit amount and refund conditions"
+    },
+    "rent_escalation": {
+        "keywords": ["rent escalation", "increase in rent", "rent shall increase"],
+        "weight": 5,
+        "description": "Rent escalation clause – governs rent increases over time"
+    },
+    "maintenance": {
+        "keywords": ["maintenance", "repair", "upkeep", "maintain the premises"],
+        "weight": 6,
+        "description": "Maintenance clause – allocates maintenance and repair responsibility"
+    },
+    "subletting": {
+        "keywords": ["sublet", "subletting", "sublease"],
+        "weight": 5,
+        "description": "Subletting clause – governs whether the premises can be sublet"
+    },
+    "probation_period": {
+        "keywords": ["probation", "probation period"],
+        "weight": 5,
+        "description": "Probation period clause – defines the initial evaluation period"
+    },
+    "non_solicitation": {
+        "keywords": ["non-solicitation", "non solicitation", "solicit any customer", "solicit any employee"],
+        "weight": 5,
+        "description": "Non-solicitation clause – restricts solicitation of customers or personnel"
+    },
+    "independent_contractor_status": {
+        "keywords": ["independent contractor", "nothing in this agreement shall create employment", "not an employee"],
+        "weight": 6,
+        "description": "Independent contractor clause – clarifies employment status and tax responsibilities"
+    },
+}
+
+HINDI_ADDITIONAL_CLAUSES = {
+    "data_protection": {
+        "keywords": ["डेटा संरक्षण", "गोपनीयता", "व्यक्तिगत डेटा", "डेटा प्रसंस्करण"],
+        "weight": 9,
+        "description": "डेटा संरक्षण खंड – व्यक्तिगत डेटा और गोपनीयता दायित्वों को नियंत्रित करता है"
+    },
+    "stamp_duty": {
+        "keywords": ["स्टाम्प शुल्क", "स्टाम्प ड्यूटी", "ई-स्टाम्प", "स्टाम्प पेपर"],
+        "weight": 7,
+        "description": "स्टाम्प शुल्क खंड – स्टाम्पिंग और निष्पादन अनुपालन को संबोधित करता है"
+    },
+    "non_compete": {
+        "keywords": ["गैर-प्रतिस्पर्धा", "प्रतिस्पर्धा नहीं", "प्रतिस्पर्धी गतिविधि"],
+        "weight": 6,
+        "description": "गैर-प्रतिस्पर्धा खंड – प्रतिस्पर्धी गतिविधि पर प्रतिबंध लगाता है"
+    },
+    "duration": {
+        "keywords": ["अवधि", "इस अनुबंध की अवधि", "वैध रहेगा"],
+        "weight": 6,
+        "description": "अवधि खंड – अनुबंध कितने समय तक प्रभावी रहेगा"
+    },
+    "scope": {
+        "keywords": ["कार्य का दायरा", "दायरा", "सेवाएं"],
+        "weight": 6,
+        "description": "दायरा खंड – सेवाओं या कार्य का दायरा निर्धारित करता है"
+    },
+    "deliverables": {
+        "keywords": ["डिलिवरेबल्स", "उत्पाद", "माइलस्टोन"],
+        "weight": 6,
+        "description": "डिलिवरेबल्स खंड – डिलीवर की जाने वाली वस्तुओं या माइलस्टोन को परिभाषित करता है"
+    },
+    "maintenance": {
+        "keywords": ["रखरखाव", "मरम्मत", "उप-रखरखाव"],
+        "weight": 6,
+        "description": "रखरखाव खंड – रखरखाव और मरम्मत की जिम्मेदारी तय करता है"
+    },
+    "security_deposit": {
+        "keywords": ["सुरक्षा जमा", "जमा राशि", "वापसी योग्य जमा"],
+        "weight": 6,
+        "description": "सुरक्षा जमा खंड – जमा राशि और वापसी की शर्तों को परिभाषित करता है"
+    },
+    "subletting": {
+        "keywords": ["उपकिरायेदारी", "सबलेट", "उपपट्टा"],
+        "weight": 5,
+        "description": "उपकिरायेदारी खंड – संपत्ति को आगे किराए पर देने के नियम तय करता है"
+    },
+}
+
+CONTRACT_EXTRA_CHECK_ALIASES = {
+    "probation period": "probation_period",
+    "notice period": "notice",
+    "non-compete": "non_compete",
+    "non-solicitation": "non_solicitation",
+    "benefits": "benefits",
+    "definition of confidential info": "confidentiality",
+    "duration of obligation": "duration",
+    "exclusions": "exclusions",
+    "return of materials": "return_of_materials",
+    "scope of work": "scope",
+    "delivery schedule": "delivery_schedule",
+    "acceptance criteria": "acceptance_criteria",
+    "security deposit": "security_deposit",
+    "rent escalation": "rent_escalation",
+    "maintenance responsibility": "maintenance",
+    "subletting": "subletting",
+    "deliverables": "deliverables",
+    "payment schedule": "payment_terms",
+    "independent contractor status": "independent_contractor_status",
+}
+
 
 def check_compliance(
     clauses: List[Dict],
     full_text: str,
-    language: str = "en"
+    language: str = "en",
+    jurisdiction_rules: Optional[Dict[str, Any]] = None,
+    contract_info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Check document compliance against essential clause checklist.
@@ -287,9 +452,8 @@ def check_compliance(
         - missing_clauses: list of missing essential clauses
         - details: per-clause compliance info (with quality assessment)
     """
-    checklist = HINDI_ESSENTIAL_CLAUSES if language == "hi" else ESSENTIAL_CLAUSES
+    checklist = _build_checklist(language, jurisdiction_rules, contract_info)
     validators = HINDI_STRUCTURAL_VALIDATORS if language == "hi" else STRUCTURAL_VALIDATORS
-    text_lower = full_text.lower()
 
     found = []
     missing = []
@@ -299,9 +463,11 @@ def check_compliance(
     earned_weight = 0
 
     for clause_name, config in checklist.items():
-        is_found, matched_keyword = _check_clause_presence(
-            text_lower, config["keywords"]
-        )
+        matches = _find_matching_clauses(clauses, config["keywords"])
+        is_found = bool(matches)
+        matched_keyword = matches[0]["matched_keyword"] if matches else ""
+        matched_clause_ids = [match["clause_id"] for match in matches]
+        matched_text = "\n\n".join(match["text"] for match in matches)
 
         # ── Structural quality validation ──
         quality_score = 1.0  # Default: full quality if present
@@ -309,7 +475,7 @@ def check_compliance(
 
         if is_found and clause_name in validators:
             quality_score, quality_details = _validate_clause_quality(
-                text_lower, validators[clause_name]
+                matched_text.lower(), validators[clause_name]
             )
 
         detail = {
@@ -318,8 +484,12 @@ def check_compliance(
             "weight": config["weight"],
             "found": is_found,
             "matched_keyword": matched_keyword,
+            "matched_clause_ids": matched_clause_ids,
             "quality_score": round(quality_score, 2),
             "quality_checks": quality_details,
+            "focus_area": config.get("focus_area", False),
+            "source": config.get("source", "base"),
+            "legal_reference": config.get("legal_reference", ""),
         }
 
         if is_found:
@@ -330,7 +500,9 @@ def check_compliance(
             missing.append({
                 "clause_type": clause_name,
                 "description": config["description"],
-                "importance": _weight_to_importance(config["weight"])
+                "importance": _weight_to_importance(config["weight"]),
+                "focus_area": config.get("focus_area", False),
+                "source": config.get("source", "base"),
             })
 
         details.append(detail)
@@ -365,6 +537,130 @@ def _check_clause_presence(
         if keyword.lower() in text_lower:
             return True, keyword
     return False, ""
+
+
+def _find_matching_clauses(clauses: List[Dict], keywords: List[str]) -> List[Dict[str, Any]]:
+    """Find clause texts that contain any keyword for a compliance item."""
+    matches = []
+    for clause in clauses:
+        clause_text = clause.get("text", "")
+        clause_text_lower = clause_text.lower()
+        for keyword in keywords:
+            if keyword.lower() in clause_text_lower:
+                matches.append({
+                    "clause_id": clause.get("id"),
+                    "section_number": clause.get("section_number", ""),
+                    "text": clause_text,
+                    "matched_keyword": keyword,
+                })
+                break
+    return matches
+
+
+def _build_checklist(
+    language: str,
+    jurisdiction_rules: Optional[Dict[str, Any]] = None,
+    contract_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build the effective compliance checklist for the selected context."""
+    base_checklist = HINDI_ESSENTIAL_CLAUSES if language == "hi" else ESSENTIAL_CLAUSES
+    additional_clauses = HINDI_ADDITIONAL_CLAUSES if language == "hi" else ADDITIONAL_CLAUSES
+
+    checklist = {
+        clause_name: {
+            **config,
+            "keywords": list(config.get("keywords", [])),
+            "source": "base",
+            "focus_area": False,
+            "legal_reference": "",
+        }
+        for clause_name, config in base_checklist.items()
+    }
+
+    for clause_name, rule in (jurisdiction_rules or {}).get("required_clauses", {}).items():
+        default_config = additional_clauses.get(clause_name) or ADDITIONAL_CLAUSES.get(clause_name)
+        if default_config is None:
+            default_config = _default_clause_config(clause_name, rule.get("weight", 5))
+
+        checklist[clause_name] = _augment_checklist_item(
+            checklist.get(clause_name, default_config),
+            weight=rule.get("weight", default_config.get("weight", 5)),
+            source_tag="jurisdiction",
+            legal_reference=rule.get("ref", ""),
+        )
+
+    if contract_info:
+        for clause_name in contract_info.get("focus", []):
+            default_config = checklist.get(clause_name) or additional_clauses.get(clause_name) or ADDITIONAL_CLAUSES.get(clause_name)
+            if default_config is None:
+                continue
+
+            checklist[clause_name] = _augment_checklist_item(
+                default_config,
+                weight=max(default_config.get("weight", 5), 7),
+                source_tag="contract_type",
+                focus_area=True,
+            )
+
+        for extra_check in contract_info.get("extra_checks", []):
+            clause_name = CONTRACT_EXTRA_CHECK_ALIASES.get(extra_check.lower())
+            if clause_name is None:
+                continue
+
+            default_config = checklist.get(clause_name) or additional_clauses.get(clause_name) or ADDITIONAL_CLAUSES.get(clause_name)
+            if default_config is None:
+                continue
+
+            checklist[clause_name] = _augment_checklist_item(
+                default_config,
+                weight=max(default_config.get("weight", 5), 6),
+                source_tag="contract_type",
+                focus_area=True,
+            )
+
+    return checklist
+
+
+def _augment_checklist_item(
+    config: Dict[str, Any],
+    weight: int,
+    source_tag: str,
+    focus_area: bool = False,
+    legal_reference: str = "",
+) -> Dict[str, Any]:
+    """Merge checklist metadata without losing existing rule details."""
+    updated = {
+        **config,
+        "keywords": list(config.get("keywords", [])),
+    }
+
+    existing_sources = {
+        source.strip()
+        for source in str(updated.get("source", "")).split("+")
+        if source.strip()
+    }
+    existing_sources.add(source_tag)
+    updated["source"] = "+".join(sorted(existing_sources))
+    updated["weight"] = max(weight, updated.get("weight", weight))
+    updated["focus_area"] = updated.get("focus_area", False) or focus_area
+    if legal_reference:
+        updated["legal_reference"] = legal_reference
+    else:
+        updated.setdefault("legal_reference", "")
+    return updated
+
+
+def _default_clause_config(clause_name: str, weight: int) -> Dict[str, Any]:
+    """Create a fallback checklist entry for dynamically-added clause types."""
+    label = clause_name.replace("_", " ")
+    return {
+        "keywords": [label],
+        "weight": weight,
+        "description": f"{label.title()} clause – required for this jurisdiction or contract type",
+        "source": "dynamic",
+        "focus_area": False,
+        "legal_reference": "",
+    }
 
 
 def _validate_clause_quality(

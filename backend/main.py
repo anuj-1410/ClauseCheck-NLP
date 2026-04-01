@@ -11,9 +11,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import SUPABASE_URL, SUPABASE_KEY, TESSERACT_PATH, GROQ_API_KEY
+from config import SUPABASE_URL, SUPABASE_KEY, PADDLEOCR_USE_GPU, GROQ_API_KEY, SPACY_MODEL
 from db.supabase_client import initialize as init_db
-from services.ocr_service import configure_tesseract
+from services.ocr_service import configure_paddleocr
 from services.llm_service import initialize as init_llm
 from routers.analyze import router as analyze_router
 from routers.history import router as history_router
@@ -45,8 +45,8 @@ async def lifespan(app: FastAPI):
     # Initialize database
     init_db(SUPABASE_URL, SUPABASE_KEY)
 
-    # Configure Tesseract
-    configure_tesseract(TESSERACT_PATH)
+    # Configure OCR runtime
+    configure_paddleocr(use_gpu=PADDLEOCR_USE_GPU)
 
     # Initialize LLM
     init_llm(GROQ_API_KEY)
@@ -66,11 +66,11 @@ def _preload_models():
     """Pre-load NLP models to avoid first-request latency."""
     try:
         import spacy
-        spacy.load("en_core_web_sm")
-        logger.info("spaCy English model loaded.")
+        spacy.load(SPACY_MODEL)
+        logger.info("spaCy English model loaded: %s", SPACY_MODEL)
     except Exception as e:
         logger.warning(f"spaCy model not available: {e}")
-        logger.warning("  Run: python -m spacy download en_core_web_sm")
+        logger.warning("  Run: python -m spacy download %s", SPACY_MODEL)
 
 
 # ──────────────────────────────────────────────
@@ -108,6 +108,7 @@ async def root():
         "description": "Bilingual Legal Contract Risk & Compliance Analyzer",
         "endpoints": {
             "analyze": "POST /api/analyze",
+            "translate": "POST /api/translate/{id}",
             "history": "GET /api/history",
             "history_detail": "GET /api/history/{id}",
             "chat": "POST /api/chat",

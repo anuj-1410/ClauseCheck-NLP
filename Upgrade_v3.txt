@@ -1,0 +1,2180 @@
+# 🚀 Combined Upgrade Plan — AI Contract Intelligence Workspace
+
+---
+
+## PART 1 — BACKEND UPGRADES
+
+---
+
+### 1.1 Replace `en_core_web_trf` → `en_core_web_sm`
+
+**Files Affected:** `entity_extractor.py`, `obligation_detector.py`, `responsibility_detector.py`
+
+**Current State:**
+- Using `en_core_web_trf` (spaCy Transformer Model with RoBERTa)
+- Used for: tokenization, POS tagging, NER, dependency parsing
+
+**Problem:**
+- You are NOT using transformer embeddings or deep contextual NER features
+- You are only using: dependency labels (`nsubj`, `dobj`), basic entity labels, token-level parsing
+- You already use `sentence-transformers` for semantic understanding
+- Running both = duplicate transformer stacks in memory (~unnecessary overhead)
+
+**Action:**
+- Replace `en_core_web_trf` with `en_core_web_sm` across all three files
+- `en_core_web_sm` is fully sufficient for your actual usage (dependency labels + basic NER)
+
+**Result:** Faster load times, lower RAM usage, no loss of functionality
+
+---
+
+### 1.2 Replace `paraphrase-multilingual-mpnet-base-v2` → `paraphrase-multilingual-MiniLM-L12-v2`
+
+**Files Affected:** `risk_detector.py`, `contract_comparator.py`
+
+**Current State:**
+- Using MPNet model (~400–500MB) for semantic similarity detection
+- Used for: paraphrased risk detection, clause comparison, cross-lingual matching (Hindi ↔ English)
+
+**Problem:**
+- MPNet is unnecessarily heavy for your use case
+- High RAM consumption, slower inference
+
+**Why Semantic Embedding Is Still Needed:**
+```
+Clause:   "The consultant shall bear unlimited financial responsibility."
+Prototype: "Unlimited liability clause."
+Regex:     ❌ Fails
+Embedding: ✅ Succeeds
+```
+
+**Action:**
+- Replace with `paraphrase-multilingual-MiniLM-L12-v2`
+- Same purpose, same multilingual support, much lighter, faster
+
+**Result:** Same semantic capability, significantly reduced model size and inference time
+
+---
+
+### 1.3 Clause Segmenter — Minor Fix
+
+**File:** `clause_segmenter.py`
+
+**What Is Working Well (Keep As-Is):**
+- English numbering patterns
+- Hindi numbering patterns (धारा, अनुच्छेद, खंड)
+- Section-first strategy with sentence segmentation fallback
+- Short-clause merge logic
+- Bilingual, layout-aware
+
+**Current Issue:**
+```python
+# Fragile heuristic:
+if b["start"] - filtered[-1]["start"] > 20
+```
+The `20-char` gap check is unreliable.
+
+**Fix:**
+- Replace with actual range intersection check to detect overlapping boundaries
+
+**Current Score:** 9/10 — solid architecture, minor fix only
+
+---
+
+### 1.4 Compliance Checker — Structural Upgrade
+
+**File:** `compliance_checker.py`
+
+**What Was Improved:**
+- Structural validation
+- Clause quality checks
+- Hindi structural validation
+- Weight-based scoring
+- Compliance now = presence × structure (not just presence)
+
+**Remaining Issue:**
+- Structural checks still rely on regex
+- Example failure: `"notice of \d+ days"` regex misses `"Thirty days prior written notice"`
+
+**Suggested Upgrade:**
+- Add embedding similarity for structural element detection alongside existing regex
+
+**Current Score:** 8.5/10 — strong for rule-based, embedding addition would make it near-perfect
+
+---
+
+### 1.5 Contract Comparator — Threshold Tuning
+
+**File:** `contract_comparator.py`
+
+**What Is Working Well:**
+- Multilingual embedding model
+- Lazy loading
+- Lexical fallback
+- Risk delta + compliance delta
+- Power shift messaging
+
+**Current Issue:**
+```python
+SIMILARITY_THRESHOLD = 0.4
+SEMANTIC_THRESHOLD = 0.55   # Too low for legal text
+```
+`0.55` may produce false semantic matches in legal context.
+
+**Fix:**
+- Raise `SEMANTIC_THRESHOLD` to `0.70–0.75` for legal text accuracy
+
+**Current Score:** 9/10 — production-ready after threshold tuning
+
+---
+
+### 1.6 Risk Detector — Threshold Tuning
+
+**File:** `risk_detector.py`
+
+**What Is Working Well:**
+- Regex detection
+- Semantic similarity
+- Multilingual embeddings
+- Cross-lingual support (Hindi + English)
+
+**Remaining Issue:**
+- Similarity threshold not explicitly tuned
+- If threshold is too low → false positive risks detected
+
+**Fix:**
+- Carefully tune similarity threshold (recommend starting at `0.70`, adjust based on testing)
+
+**Current Score:** 9.5/10 — architecture is excellent
+
+---
+
+## PART 2 — FRONTEND / UI REDESIGN
+
+---
+
+### 2.1 Overall Layout Architecture
+
+**Current Problem:**
+- Horizontal tabs showing isolated, static extracted data
+- No hierarchy of importance
+- No action-oriented UX
+- No contextual linking between contract text and insights
+- Website does not use full width — unwanted spacing on both sides
+
+**Target Architecture:**
+
+```
+-----------------------------------------------------------------
+| Top Bar (Contract Type | Chat | New Button — UNCHANGED)       |
+-----------------------------------------------------------------
+| Left Sidebar  |   Middle Panel      |   Right Panel           |
+|    20%        |      40%            |      40%                |
+-----------------------------------------------------------------
+```
+
+**Layout Rules:**
+- Fix full-width issue: remove any max-width container constraints, ensure root layout uses `width: 100%` with no horizontal margin/padding that causes side gaps
+- Keep the existing horizontal top bar exactly as-is (contract type label, chat button, new button)
+- All changes start below the top bar
+- No dummy/static data anywhere — all panels render only when real data is available
+- If a panel section has no data, show an appropriate empty state message
+
+---
+
+### 2.2 Left Sidebar Navigation (20%)
+
+**Replace** old horizontal tabs with a vertical left sidebar.
+
+**Sidebar Items (in order):**
+
+| Icon | Label | Badge |
+|------|-------|-------|
+| 📊 | Overview | — |
+| 📝 | Plain English | clause count |
+| ⚠ | Risks | count + 🔴 if high |
+| ❓ | Ambiguity | count |
+| ⏳ | Timeline | count |
+| 👥 | Entities | count |
+| ⚖ | Obligations | count |
+| 🛡 | Compliance | missing count + 🔴 if any |
+
+**Sidebar Rules:**
+- Active tab is visually highlighted
+- Badges show live counts from analysis data
+- Red badge indicator on Risks if any high severity, on Compliance if any missing clauses
+- Sidebar is always visible across all tabs
+
+---
+
+### 2.3 TAB 1 — Overview
+
+**Purpose:** Immediate strategic snapshot of the entire contract
+
+#### Middle Panel (40%) — Charts Dashboard
+
+Display the following charts/visuals (all driven by real analysis data):
+
+1. **Contract Health Gauge** (circular/radial)
+   - Score: 0–100 derived from risk score + imbalance + compliance gaps + exposure
+   - Label: "Contract Health: XX/100" with status (Low / Moderate / High Risk)
+
+2. **Responsibility Tug-of-War Bar**
+   - Horizontal split bar: Party A `████████ 78%` | Party B `██ 22%`
+   - Imbalance label: Low / Medium / High
+
+3. **Risk Distribution Chart** (donut or bar)
+   - Breakdown of risk severities: High / Medium / Low
+   - Count per category
+
+4. **Compliance Status Chart** (donut or bar)
+   - Present vs Missing clauses count
+
+5. **Ambiguity Distribution** (bar or list-style visual)
+   - Count of vague terms, passive voice instances
+
+6. **Critical Gaps Indicator** (callout card)
+   - "🔔 X Missing Essential Clauses"
+   - "🔴 X High Severity Risks"
+   - Both clickable — clicking navigates to the respective tab
+
+7. **Financial Exposure Badge** (card)
+   - Total Contract Value (if calculable)
+   - Liability Cap: Defined / Not Defined
+
+#### Right Panel (40%) — Executive Summary
+
+Display a structured executive summary auto-generated from analysis:
+
+- **Contract Type & Parties:** Identified contract type, Party A role (Client/Provider/etc.), Party B role
+- **Key Financial Terms:** Payment amounts, duration, total estimated value
+- **Top 3 Risks:** Brief one-line description of highest severity risks
+- **Critical Missing Clauses:** Which essential clauses are absent
+- **Obligation Balance:** Who carries more burden and by how much
+- **Recommended Priority Actions:** Top 3 things the user should address
+
+---
+
+### 2.4 TAB 2 — Plain English
+
+**Purpose:** Legal clarity analyzer — show every clause simplified
+
+#### Middle Panel (40%) — All Clauses List
+
+- Display all segmented clauses as a scrollable list of cards
+- Each card shows: clause number/title + first ~2 lines of original text
+- **Selection behavior:** When a clause is clicked/selected:
+  - Selected clause card is fully visible and highlighted with a distinct border
+  - All other clause cards fade to ~30% opacity (soft fade-out effect)
+  - Right panel updates immediately to show that clause's plain English
+- Clause cards have a subtle color-coded left border strip based on risk level (🔴 high / 🟡 medium / 🟢 low/none)
+
+#### Right Panel (40%) — Plain English for Selected Clause
+
+Shown when a clause is selected:
+
+- **Original Text** (displayed in a muted/secondary style)
+- **Plain English Version** (displayed prominently)
+- **Metrics below:**
+  - Simplified by: XX%
+  - Passive voice removed: Yes/No
+  - Sentence count: Original X → Simplified Y
+- **Complexity Reduction Badge**
+- If no clause is selected, show: "Select a clause to see its plain English version"
+
+---
+
+### 2.5 TAB 3 — Risks
+
+**Purpose:** Negotiation toolkit — not just risk detection
+
+#### Middle Panel (40%) — Risk-Flagged Clauses Only
+
+- Display only clauses that have at least one detected risk
+- Each clause card shows:
+  - Clause number/title
+  - Risk severity badge (🔴 High / 🟡 Medium / 🟢 Low)
+  - One-line risk summary
+  - Left border color-coded by severity
+- Selection behavior: same fade effect as Plain English tab — selected clause highlighted, others faded
+- Filter toggle at top: "Show All Risks" / "High Only" / "Medium Only"
+
+#### Right Panel (40%) — Risk Details + Negotiation Advice
+
+Shown when a clause is selected:
+
+- **Detected Risk(s) for this clause:**
+  - Risk Level: High / Medium / Low
+  - Impact Category: Financial / Operational / IP / Reputational
+  - Estimated Exposure: Unlimited / Capped / Undefined
+  - Legal explanation of why this is a risk
+
+- **Suggested Fix Template:**
+  - Displayed as a formatted suggestion block
+  - Copy button to copy suggested fix text
+  - Example: If unlimited liability → "The total liability of either party shall not exceed [amount]..."
+
+- **Negotiation Advice** (from What-If / negotiation engine):
+  - What to ask for in negotiation
+  - Leverage points
+
+- **Confidence Score** of risk detection
+
+- If no clause is selected, show: "Select a risk-flagged clause to see details and negotiation advice"
+
+---
+
+### 2.6 TAB 4 — Ambiguity
+
+**Purpose:** Contract hardening tool — detect and fix vague language
+
+#### Middle Panel (40%) — Ambiguity-Flagged Clauses Only
+
+- Display only clauses that contain detected ambiguities
+- Each clause card shows:
+  - Clause number/title
+  - Count of ambiguous terms detected
+  - Preview of first vague term found
+  - Left border in yellow/orange for ambiguity
+- Selection behavior: same fade effect — selected clause highlighted, others faded
+
+#### Right Panel (40%) — Ambiguity Details for Selected Clause
+
+Shown when a clause is selected:
+
+- **Original clause text** with ambiguous terms highlighted/underlined inline
+
+- **Detected Ambiguities list** (for that clause):
+  For each vague term/phrase:
+  - Detected: `"reasonable"`
+  - Why it's vague: brief explanation
+  - Suggested precision: `"Within 5 business days"` or `"Not exceeding 10% of contract value"` etc.
+  - "Replace Preview" button — shows what the clause would look like with the fix applied
+
+- **Passive Voice Instances** in that clause:
+  - Original passive sentence
+  - Active rewrite suggestion
+
+- If no clause selected, show: "Select a clause to see its ambiguity analysis"
+
+---
+
+### 2.7 TAB 5 — Timeline
+
+**Purpose:** Contract lifecycle visualizer — answer "when do I need to act?"
+
+#### Middle Panel (40%) — All Timeline-Related Clauses
+
+- Display all clauses that contain dates, durations, deadlines, or notice periods
+- Each clause card shows:
+  - Clause number/title
+  - What timeline element was detected (e.g., "Duration: 12 months", "Notice: 30 days")
+  - Any critical deadline highlighted in red if approaching or important
+
+#### Right Panel (40%) — Full Contract Lifecycle (Combined, Not Per-Clause)
+
+Display the complete timeline derived from all clauses combined:
+
+- **Lifecycle Blocks (horizontal time rail visual):**
+  - Contract Active Period (start → end date)
+  - Termination Notice Window (notice deadline)
+  - Post-Termination Obligations Period
+
+- **Key Dates Summary:**
+  | Event | Date |
+  |-------|------|
+  | Contract Start | 01 Jan 2025 |
+  | Contract End | 31 Dec 2025 |
+  | Notice Deadline | 01 Dec 2025 |
+  | Confidentiality Ends | 31 Dec 2028 |
+
+- **Calculated Deadlines:**
+  - Renewal deadline (if applicable)
+  - Post-termination obligation end dates
+
+- **Upcoming / Critical Deadlines** highlighted in red
+
+- This panel stays the same regardless of which clause card is selected in the middle (timeline is always shown as a combined contract-wide view)
+
+---
+
+### 2.8 TAB 6 — Entities
+
+**Purpose:** Financial exposure dashboard
+
+#### Middle Panel (40%) — All Clauses with Detected Entities
+
+- Display clauses that contain recognized entities (parties, monetary values, organizations, locations)
+- Each clause card shows:
+  - Clause number/title
+  - Types of entities found (e.g., "Party • Money • Duration")
+  - Entity count badge
+
+#### Right Panel (40%) — Entity Summary Dashboard (Combined)
+
+Display aggregated entity data across the full contract:
+
+- **Primary Parties:**
+  - Party name → Inferred role (Client / Consultant / Provider etc.) based on obligation patterns
+
+- **Financial Summary:**
+  | Field | Value |
+  |-------|-------|
+  | Monthly Payment | ₹75,000 |
+  | Contract Duration | 12 months |
+  | Total Estimated Value | ₹9,00,000 |
+  | Liability Cap | Not Defined |
+
+- **Other Entities:**
+  - Organizations mentioned
+  - Locations / jurisdictions
+  - Key dates (cross-reference with timeline)
+
+- **Liability Exposure Indicator:**
+  - Cap Defined: Yes/No
+  - If No: warning badge shown
+
+- Panel shows combined data for full contract (not filtered per selected clause)
+
+---
+
+### 2.9 TAB 7 — Obligations
+
+**Purpose:** Power imbalance analyzer — burden gauge
+
+#### Middle Panel (40%) — All Clauses with Obligations
+
+- Display all clauses that contain detected obligations
+- Each clause card shows:
+  - Clause number/title
+  - Who bears the obligation (Party A / Party B / Both)
+  - Type: Mandatory / Optional
+  - Left border: color by party (e.g., blue for Consultant, orange for Company)
+- Selection: same fade effect — selected clause highlighted
+
+#### Right Panel (40%) — Obligation Analysis Dashboard
+
+Display aggregated obligation analysis:
+
+- **Responsibility Split Visual:**
+  ```
+  Consultant  ██████████  78%
+  Company     ██          22%
+  ```
+  - Imbalance Level: Low / Medium / High
+
+- **Obligation Breakdown:**
+  - Total obligations: X
+  - Consultant obligations: X
+  - Company obligations: X
+  - Mutual obligations: X
+
+- **Burden Ratio:** calculated value
+
+- **Critical Flags:**
+  - Unilateral indemnity detected: Yes/No
+  - Unilateral termination right: Yes/No
+  - Unilateral liability: Yes/No
+
+- **Top 5 Most Critical Obligations** (by severity/impact)
+
+- **Unilateral vs Mutual Breakdown Chart**
+
+---
+
+### 2.10 TAB 8 — Compliance
+
+**Purpose:** Protection gap analysis — not just presence checking
+
+#### Middle Panel (40%) — All Compliance-Relevant Clauses
+
+- Display clauses mapped to standard compliance requirements
+- Each clause card shows:
+  - Clause/requirement name
+  - Status: ✅ Present & Balanced / ⚠ Present but Weak / ❌ Missing
+  - Risk level badge for missing/weak clauses
+- Missing clauses grouped at the top of the list
+- Selection: same fade effect
+
+#### Right Panel (40%) — Compliance Protection Gap Analysis
+
+For each selected compliance item (or full overview if nothing selected):
+
+- **Clause Status:**
+  - Present? ✅/❌
+  - Balanced? ✅/⚠/❌
+  - Enforceable? ✅/⚠/❌
+  - Structured properly? ✅/⚠/❌
+
+- **For Missing Clauses — Worst Case Scenario:**
+  - Example (Force Majeure missing):
+    - Risk: You may be liable for delays caused by natural disasters
+    - Priority: High
+    - Suggested language template
+
+- **Table View (full compliance list):**
+  | Clause | Status | Risk Level | Consequence |
+  |--------|--------|-----------|-------------|
+  | Force Majeure | ❌ Missing | High | Liable for uncontrollable delays |
+  | Confidentiality | ✅ Present | — | — |
+  | Dispute Resolution | ⚠ Weak | Medium | Enforceability risk |
+
+---
+
+### 2.11 Inline What-If / Re-Analyze (Replaces Static What-If Tab)
+
+- Remove "What-If" as a separate tab
+- Instead, each clause card (in any tab) has an **"✏ Edit & Re-Analyze"** button
+- When clicked:
+  - Opens an inline split editor within that clause card
+  - User edits the clause text
+  - System recalculates only that clause's scores
+  - Shows: Score Before → Score After comparison
+  - Applies to risk score, compliance score, ambiguity count
+
+---
+
+### 2.12 Export / Generate Panel (Bottom of Right Panel)
+
+Available in Risk tab and Compliance tab's right panel:
+
+- **"Generate Negotiation Email"** button
+  - Auto-formats a professional email:
+    - Subject line
+    - Contract clause reference
+    - Identified issue
+    - Proposed change language
+
+- **"Export Report"** button (available globally)
+  - Exports full analysis as PDF/structured document
+
+---
+
+## PART 3 — VISUAL & UX POLISH
+
+---
+
+### 3.1 Design Upgrades
+
+- **High-risk clause cards:** Subtle red glow on card border
+- **Severity color gradient edges:** Left border strip color-coded (red/yellow/green)
+- **Animated severity pulse:** Pulsing animation on critical issue badges
+- **Depth shadows:** Card shadows to create depth on insight cards
+- **Hover effects:** Subtle lift/tilt on clause cards on hover
+- **Animated sidebar badge:** Smooth number update animation when counts change
+- **Dark theme maintained** with added contrast differentiation between panels
+- **Selection fade effect:** Non-selected clauses fade to ~30% opacity smoothly (CSS transition)
+
+### 3.2 Full-Width Fix
+
+- Locate root layout container (likely `App.jsx`, `Layout.jsx`, or equivalent)
+- Remove any `max-width` CSS constraints causing side gaps
+- Ensure: `width: 100%; margin: 0; padding: 0;` on the root wrapper
+- The three-panel layout should use: `display: flex; width: 100%; height: calc(100vh - [topbar height]);`
+- No horizontal overflow, no side whitespace
+
+### 3.3 Empty States & Loading
+
+- Every panel must handle: loading state, empty/no-data state, error state
+- No dummy data, no placeholder text that looks like real data
+- Loading: show skeleton loaders
+- Empty: show contextual message ("No risks detected in this contract" etc.)
+
+---
+
+## PART 4 — SUMMARY OF ALL ACTIONS
+
+| # | Area | Action | Priority |
+|---|------|--------|----------|
+| 1 | Backend | Replace `en_core_web_trf` → `en_core_web_sm` | High |
+| 2 | Backend | Replace MPNet → MiniLM embedding model | High |
+| 3 | Backend | Fix clause segmenter boundary overlap check | Medium |
+| 4 | Backend | Add embedding similarity to compliance checker | Medium |
+| 5 | Backend | Raise semantic threshold to 0.70–0.75 in comparator | High |
+| 6 | Backend | Tune risk detector similarity threshold | High |
+| 7 | Frontend | Fix full-width layout (remove side spacing) | Critical |
+| 8 | Frontend | Replace horizontal tabs with left vertical sidebar | Critical |
+| 9 | Frontend | Build Overview tab (charts + executive summary) | Critical |
+| 10 | Frontend | Build Plain English tab (clause list + fade + right panel) | High |
+| 11 | Frontend | Build Risk tab (risk clauses + negotiation advice) | High |
+| 12 | Frontend | Build Ambiguity tab (ambiguous clauses + fix suggestions) | High |
+| 13 | Frontend | Build Timeline tab (clauses list + combined lifecycle visual) | High |
+| 14 | Frontend | Build Entities tab (entity clauses + financial dashboard) | Medium |
+| 15 | Frontend | Build Obligations tab (obligation clauses + burden gauge) | Medium |
+| 16 | Frontend | Build Compliance tab (compliance clauses + gap analysis) | High |
+| 17 | Frontend | Remove What-If tab, add inline Edit & Re-Analyze per clause | Medium |
+| 18 | Frontend | Add Export/Negotiation Email panel | Low |
+| 19 | Frontend | Apply visual polish (glow, pulse, fade, shadows, hover) | Medium |
+| 20 | Frontend | Handle all loading/empty/error states, no dummy data | Critical |
+
+
+
+
+## HOW TO READ THIS PLAN
+
+Every section starts with **"Current Reality"** — what the code actually does today — before describing what to change. This prevents re-implementing things that already work. The plan is sequenced so dependencies are resolved before the code that needs them.
+
+---
+
+## PART 1 — BACKEND OPTIMISATIONS (Changes to Existing Files)
+
+---
+
+### 1.1 Replace `en_core_web_trf` with `en_core_web_sm`
+
+**Files to change:** `entity_extractor.py`, `obligation_detector.py`, `responsibility_detector.py`
+
+**Current Reality:**
+All three files already have a try/except fallback — they try `en_core_web_trf` first and fall back to `en_core_web_sm`. The fallback logic works. The problem is that `en_core_web_trf` is attempted every cold start, slowing down initialisation and consuming GPU memory if available.
+
+**What to change (same pattern in all three files, in the `_get_spacy()` function):**
+```python
+# CURRENT (in all three files):
+try:
+    _spacy_nlp = spacy.load("en_core_web_trf")
+    logger.info("spaCy en_core_web_trf loaded.")
+except OSError:
+    _spacy_nlp = spacy.load("en_core_web_sm")
+    logger.info("Using en_core_web_sm fallback.")
+
+# REPLACE WITH:
+_spacy_nlp = spacy.load("en_core_web_sm")
+logger.info("spaCy en_core_web_sm loaded.")
+```
+
+Remove the entire try/except for `en_core_web_trf`. The fallback is no longer needed once `en_core_web_sm` is the primary.
+
+**Result:** Faster startup, lower RAM, no functional regression.
+
+---
+
+### 1.2 Replace MPNet with MiniLM
+
+**Files to change:** `risk_detector.py`, `contract_comparator.py`
+
+**Current Reality:**
+- `risk_detector.py`: `SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")` — ~450MB
+- `contract_comparator.py`: same model string, meaning both models load into memory simultaneously
+
+**What to change (find the model name string in both files and replace):**
+```python
+# IN BOTH FILES — find this line:
+_semantic_model = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")
+
+# REPLACE WITH:
+_semantic_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+```
+
+No other code changes required — the API is identical between models.
+
+**Result:** ~60% smaller model, faster encoding, same multilingual + cross-lingual capability.
+
+---
+
+### 1.3 Fix Clause Segmenter Overlap Check
+
+**File:** `clause_segmenter.py`
+
+**Current Reality:**
+```python
+# In _segment_by_sections(), around line 65:
+if b["start"] - filtered[-1]["start"] > 20:
+    filtered.append(b)
+```
+The 20-character gap check is fragile — a real boundary could legitimately be within 20 chars of another.
+
+**Replace the filter block with a range intersection check:**
+```python
+# REPLACE THE ENTIRE FILTER BLOCK WITH:
+filtered = [boundaries[0]]
+for b in boundaries[1:]:
+    prev = filtered[-1]
+    # Only add if this boundary starts after the previous boundary's match ends
+    if b["start"] >= prev["match_end"]:
+        filtered.append(b)
+    elif b["start"] > prev["start"]:
+        # Partial overlap — keep the one with the longer match span
+        if b["match_end"] > prev["match_end"]:
+            filtered[-1] = b
+boundaries = filtered
+```
+
+---
+
+### 1.4 Fix Contract Comparator Threshold
+
+**File:** `contract_comparator.py`
+
+**Current Reality:**
+```python
+SIMILARITY_THRESHOLD = 0.4
+SEMANTIC_THRESHOLD = 0.55   # Too low for legal text
+```
+
+**Change only the semantic threshold:**
+```python
+SEMANTIC_THRESHOLD = 0.72   # Raised for legal text accuracy
+```
+
+---
+
+### 1.5 `risk_detector.py` Threshold — Already Correct, No Change Needed
+
+**Current Reality:**
+```python
+SEMANTIC_THRESHOLD = 0.65  # Already set in risk_detector.py
+```
+This is at a reasonable level. The earlier plan was written without seeing the file. **No change needed here.** Monitor for false positives and raise to 0.70 only if needed.
+
+---
+
+### 1.6 Add Missing Fields to `responsibility_detector.py`
+
+**Current Reality:**
+`detect_responsibility_issues()` returns `vague_terms` as:
+```python
+{"clause_id", "term", "context", "issue", "suggestion", "confidence"}
+```
+And `passive_voice` as:
+```python
+{"clause_id", "matched_text", "full_text", "issue", "suggestion", "confidence"}
+```
+
+**What to add for vague_terms** — in the vague_terms detection loop, after computing `idx = text_lower.find(term.lower())`:
+```python
+# ADD these fields to every vague_terms dict entry:
+"char_start": idx,
+"char_end": idx + len(term),
+"preview_text": text[:idx] + "[" + term + "]" + text[idx + len(term): idx + len(term) + 80],
+# RENAME existing fields (keep old names too for backward compatibility):
+"why_vague": f'Vague term "{term}" — lacks precise definition',   # was: issue
+"suggested_rewrite": f'Define what "{term}" specifically means.',  # was: suggestion
+```
+
+**What to add for passive_voice** — after building each passive finding dict:
+```python
+# ADD this field:
+"active_rewrite": f"[Specify responsible party] shall {passive_verb} [object].",
+# passive_verb is already extracted in _detect_passive_english via: passive_verb = token.head.text
+```
+
+---
+
+## PART 2 — NEW FILE: `analysis_aggregator.py`
+
+---
+
+### 2.1 Why This File Is Needed and What It Does
+
+**Current Reality of `analyze.py`:**
+The `/api/analyze` route already runs all 14 analysis services and stores a comprehensive result in Supabase. The stored `clause_analysis` object contains:
+- `clauses` — from `clause_segmenter.py`: `[{id, text, section_number}]`
+- `entities` — from `entity_extractor.py`: `{parties, dates, monetary_values, durations, legal_references}`
+- `obligations` — from `obligation_detector.py`: `[{clause_id, text, strength, modal, party, action, deadline, condition, obligation_type, is_passive}]`
+- `risks` — from `risk_detector.py`: `[{clause_id, risk_type, severity, description, matched_text, clause_text, risk_score, confidence, legal_note, detection_method, jurisdiction_note}]`
+- `compliance` — from `compliance_checker.py`: `{compliance_score, found_clauses, missing_clauses, details[{clause_type, found, quality_score, quality_checks}], total_checked, total_found, total_missing}`
+- `explanations` — from `explanation_generator.py`: `{risk_explanations, compliance_explanations, overall_summary}`
+- `responsibility` — from `responsibility_detector.py`: `{passive_voice, vague_terms, missing_subjects, ambiguity_score, total_issues}`
+- `timeline` — from `timeline_extractor.py`: `{events[{id, value, type, clause_id, section, description, context, category, parsed_date}], categories, total_events}`
+- `plain_english` — from `llm_service.py`: `[{clause_id, original, simplified}]` (first 15 clauses only)
+
+**The gap:** The stored raw data contains everything, but the frontend tabs need **derived and enriched** data that no existing service computes:
+- Contract health score (derived from risk + compliance + imbalance combined)
+- Party burden percentages (aggregated from individual obligation party assignments)
+- Contract lifecycle dates (computed from timeline events using date arithmetic)
+- Party role inference — Client vs Consultant (from obligation text patterns)
+- Financial summary (aggregated from entity monetary_values + durations)
+- Risk `impact_category`, `suggested_fix`, `negotiation_advice` (lookup-table enrichment)
+- Compliance `consequence` and `suggested_language` for missing/weak clauses (lookup-table enrichment)
+- Plain English `complexity_reduction_percentage`, `passive_voice_removed` (computed metrics)
+- Ambiguity `why_vague`, `suggested_rewrite` (lookup-table enrichment)
+
+**Architecture:** `analysis_aggregator.py` is a **data transformation layer** — it reads the already-stored result from Supabase using the existing `get_result_by_id` function, computes derived metrics purely from stored data without re-running any ML model, and serves tab-specific structured responses.
+
+**Location:** Same directory as `analyze.py`, `chat.py`, `compare.py`, `history.py`
+
+**Registration:** In `main.py` or `app.py` (wherever other routers are included), add:
+```python
+from routes.analysis_aggregator import router as aggregator_router
+app.include_router(aggregator_router)
+```
+
+---
+
+### 2.2 Complete `analysis_aggregator.py`
+
+```python
+"""
+ClauseCheck – Analysis Aggregator
+Tab-specific data transformation layer.
+
+Reads stored analysis results from Supabase and computes derived metrics
+for each frontend tab. Does NOT re-run any ML models.
+
+Routes (all prefixed /api/aggregate):
+  GET  /{id}/overview
+  GET  /{id}/plain-english
+  GET  /{id}/risks
+  GET  /{id}/ambiguity
+  GET  /{id}/timeline
+  GET  /{id}/entities
+  GET  /{id}/obligations
+  GET  /{id}/compliance
+  POST /{id}/reanalyze-clause
+"""
+
+import re
+import logging
+from typing import Dict, List, Any, Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from db.supabase_client import get_result_by_id
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/aggregate", tags=["aggregator"])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# STATIC LOOKUP TABLES
+# ═══════════════════════════════════════════════════════════════════
+
+RISK_IMPACT_CATEGORY: Dict[str, str] = {
+    "unlimited_liability":       "Financial",
+    "one_sided_termination":     "Operational",
+    "missing_notice_period":     "Operational",
+    "auto_renewal":              "Operational",
+    "vague_penalties":           "Financial",
+    "non_compete_broad":         "Operational",
+    "waiver_of_rights":          "Financial",
+    "exclusive_jurisdiction":    "Operational",
+    "indemnification_broad":     "Financial",
+    "confidentiality_perpetual": "Reputational",
+}
+
+RISK_EXPOSURE_LEVEL: Dict[str, str] = {
+    "unlimited_liability":       "Unlimited",
+    "indemnification_broad":     "Unlimited",
+    "waiver_of_rights":          "Unlimited",
+    "vague_penalties":           "Undefined",
+    "non_compete_broad":         "Undefined",
+    "confidentiality_perpetual": "Undefined",
+    "one_sided_termination":     "Undefined",
+    "missing_notice_period":     "Undefined",
+    "auto_renewal":              "Capped",
+    "exclusive_jurisdiction":    "Capped",
+}
+
+RISK_SUGGESTED_FIX: Dict[str, str] = {
+    "unlimited_liability": (
+        "The total aggregate liability of either party under this Agreement shall not exceed "
+        "the total fees paid or payable in the three (3) months immediately preceding the event "
+        "giving rise to the claim. Neither party shall be liable for indirect, consequential, "
+        "special, or punitive damages."
+    ),
+    "one_sided_termination": (
+        "Either party may terminate this Agreement by providing thirty (30) days prior written "
+        "notice to the other party. Termination rights shall be mutual and equal. In the event "
+        "of material breach, the non-breaching party may terminate with fifteen (15) days notice "
+        "after providing a written opportunity to cure."
+    ),
+    "missing_notice_period": (
+        "Either party may terminate this Agreement upon providing [X] days prior written notice "
+        "to the other party. Notice shall be delivered by email and confirmed by registered post "
+        "to the address set out in Schedule [X]."
+    ),
+    "indemnification_broad": (
+        "Each party (the 'Indemnifying Party') shall indemnify the other party only against "
+        "direct losses, damages, and reasonable legal costs arising directly from the "
+        "Indemnifying Party's own gross negligence or wilful misconduct. This indemnity "
+        "shall not apply to indirect, consequential, or speculative losses."
+    ),
+    "non_compete_broad": (
+        "The Consultant shall not, for a period of [6] months following termination, directly "
+        "solicit the Client's existing customers with whom the Consultant had material dealings "
+        "during this Agreement. This restriction shall not prevent the Consultant from engaging "
+        "in any other business or employment activities."
+    ),
+    "waiver_of_rights": (
+        "No waiver of any right or provision of this Agreement shall be effective unless made "
+        "in writing and signed by both parties. A waiver of any particular breach shall not "
+        "constitute a waiver of any subsequent breach or any other right."
+    ),
+    "auto_renewal": (
+        "This Agreement shall expire on the end date in Schedule [X] unless both parties agree "
+        "in writing to renew. Either party may notify the other of its intention not to renew "
+        "by providing [30] days written notice before the expiry date."
+    ),
+    "confidentiality_perpetual": (
+        "Confidentiality obligations shall survive termination for [3] years from the date of "
+        "termination, after which they shall cease, except for information constituting a trade secret."
+    ),
+    "vague_penalties": (
+        "In the event of a breach of clause [X], the breaching party shall pay a pre-agreed "
+        "penalty of [Rs. X / X% of contract value] per [day/week] of continued breach, up to "
+        "a maximum of [Rs. X]. This amount represents a genuine pre-estimate of loss."
+    ),
+    "exclusive_jurisdiction": (
+        "The parties agree that disputes shall be resolved by arbitration under the Arbitration "
+        "and Conciliation Act, 1996, provided that either party may seek urgent injunctive "
+        "relief from any court of competent jurisdiction."
+    ),
+}
+
+RISK_NEGOTIATION_ADVICE: Dict[str, str] = {
+    "unlimited_liability": (
+        "Request a mutual liability cap as a non-negotiable starting position. Propose 1x the "
+        "total contract value as the cap. If the other party resists, you can negotiate up to 3x "
+        "but never accept unlimited. Also push for exclusion of consequential damages."
+    ),
+    "one_sided_termination": (
+        "Push for mutual termination rights with equal notice periods. If the other party insists "
+        "on their right to terminate without cause, negotiate for a termination payment equal to "
+        "1–3 months of fees. Also negotiate a cure period before termination for breach."
+    ),
+    "missing_notice_period": (
+        "Insist on a minimum 30-day notice period. If they push back, 15 days is the minimum "
+        "acceptable. Ensure notice must be in writing. Add consequences for non-compliance with "
+        "notice requirements."
+    ),
+    "indemnification_broad": (
+        "Limit indemnity to direct losses caused by your own breach or negligence. Remove 'any "
+        "and all' language. Add a mutual indemnity so both parties bear equal risk. Cap the "
+        "indemnity at the same amount as the liability cap."
+    ),
+    "non_compete_broad": (
+        "Limit scope to direct competitors only. Limit duration to 6 months post-termination. "
+        "Limit geography to areas where you actually worked. In India, overly broad non-competes "
+        "are void under Section 27 of the Indian Contract Act — use this as leverage."
+    ),
+    "waiver_of_rights": (
+        "Replace irrevocable waivers with reversible ones requiring written agreement. Add a "
+        "clause stating that no single waiver creates a pattern or precedent of waiver."
+    ),
+    "auto_renewal": (
+        "Replace auto-renewal with explicit renewal requiring written agreement from both parties. "
+        "If auto-renewal must remain, negotiate a longer cancellation window (60–90 days) and "
+        "require advance written reminder from the other party before renewal kicks in."
+    ),
+    "confidentiality_perpetual": (
+        "Propose a 3-year limit for most information, with trade secrets protected longer. Ensure "
+        "the definition of 'confidential information' has clear exclusions for publicly available "
+        "information and information independently developed."
+    ),
+    "vague_penalties": (
+        "Require all penalties to be stated as fixed amounts or clear percentages. Add a cap on "
+        "total penalty accumulation. Ensure the penalty is mutual — if it applies to you, it "
+        "should apply equally to the other party for equivalent breaches."
+    ),
+    "exclusive_jurisdiction": (
+        "Propose arbitration instead of exclusive court jurisdiction — faster, cheaper, and "
+        "private. Negotiate a neutral city for venue. Ensure urgent injunctive relief remains "
+        "available from any competent court regardless of the jurisdiction clause."
+    ),
+}
+
+VAGUE_TERM_WHY: Dict[str, str] = {
+    "reasonable":             "No objective criteria specified — 'reasonable' is entirely subjective and interpreted differently by courts.",
+    "reasonably":             "No objective criteria specified.",
+    "promptly":               "No measurable time window defined — could mean hours or months.",
+    "adequate":               "No quantitative measure given — what constitutes 'adequate' is subjective.",
+    "adequately":             "No quantitative measure given.",
+    "appropriate":            "No standard for appropriateness defined.",
+    "appropriately":          "No standard for appropriateness defined.",
+    "timely":                 "No time frame defined — this term has no fixed legal meaning.",
+    "as soon as practicable": "No deadline or time window provided.",
+    "best efforts":           "No measurable standard of effort defined — courts apply varying interpretations.",
+    "good faith":             "Subjective standard with no measurable criteria.",
+    "commercially reasonable":"Vague standard depending on industry context not defined here.",
+    "material":               "Materiality threshold not defined — what level of breach triggers this?",
+    "materially":             "Materiality threshold not defined.",
+    "substantial":            "No quantitative threshold provided.",
+    "substantially":          "No quantitative threshold provided.",
+    "satisfactory":           "Acceptance criteria not specified — who decides what is satisfactory?",
+    "sufficient":             "No measure of sufficiency given.",
+    "sufficiently":           "No measure of sufficiency given.",
+    "from time to time":      "No schedule or frequency defined.",
+    "in its sole discretion": "One party has unlimited subjective power — no criteria constrain this discretion.",
+}
+
+VAGUE_TERM_REWRITE: Dict[str, str] = {
+    "reasonable":             "not exceeding [X]% of the total contract value / within [X] business days",
+    "reasonably":             "in accordance with the criteria set out in Schedule [X]",
+    "promptly":               "within 48 hours / within 3 business days of written request",
+    "adequate":               "meeting the specifications set out in Schedule [X]",
+    "adequately":             "in accordance with the specifications set out in Schedule [X]",
+    "appropriate":            "as agreed in writing by both parties",
+    "appropriately":          "in accordance with the agreed written specification",
+    "timely":                 "within the timelines set out in Schedule [X]",
+    "as soon as practicable": "within [X] business days of receiving written notice",
+    "best efforts":           "devoting no less than [X] hours per week and taking all commercially practicable steps",
+    "good faith":             "in accordance with the following objective criteria: [list criteria]",
+    "commercially reasonable":"taking all steps that a reasonable business in the same position would take",
+    "material":               "exceeding [X]% of the total contract value or [X] days in duration",
+    "materially":             "by more than [X]%",
+    "substantial":            "at least [X]% of the total deliverables / contract value",
+    "substantially":          "by at least [X]%",
+    "satisfactory":           "meeting all acceptance criteria in Schedule [X] confirmed by both parties in writing",
+    "sufficient":             "meeting the minimum standard of [specify standard]",
+    "sufficiently":           "to a standard that meets [specify standard]",
+    "from time to time":      "on a [monthly / quarterly] basis or as otherwise agreed in writing",
+    "in its sole discretion": "on reasonable grounds with prior written notice of [X] days",
+}
+
+COMPLIANCE_CONSEQUENCES: Dict[str, str] = {
+    "termination": (
+        "Without a termination clause, neither party has a defined exit mechanism. Either party "
+        "could argue the contract is perpetual or that there is no agreed way to end it, leading "
+        "to costly disputes."
+    ),
+    "liability": (
+        "Without a liability clause, there is no cap on damages. Either party could be exposed to "
+        "unlimited financial claims. Courts may apply the full extent of actual losses, which could "
+        "far exceed the contract value."
+    ),
+    "indemnity": (
+        "Without an indemnity clause, there is no contractual protection if a third party brings a "
+        "claim arising from this contract. Each party bears its own legal defence costs and any "
+        "damages awarded against it."
+    ),
+    "confidentiality": (
+        "Without a confidentiality clause, there is no legal obligation to protect sensitive "
+        "information shared under this contract. Only general common law duty of confidence applies, "
+        "which is harder to enforce."
+    ),
+    "governing_law": (
+        "Without a governing law clause, it is legally unclear which country or state's laws apply. "
+        "In a dispute, both parties could argue for the most favourable jurisdiction, creating "
+        "expensive preliminary legal battles."
+    ),
+    "dispute_resolution": (
+        "Without a dispute resolution clause, all disputes default to full court litigation — "
+        "typically the most expensive, slowest, and most public method of resolving commercial disputes."
+    ),
+    "force_majeure": (
+        "Without a force majeure clause, neither party is excused from performance due to events "
+        "outside their control (pandemics, natural disasters, government actions). The party unable "
+        "to perform could be held in breach and liable for damages."
+    ),
+    "payment_terms": (
+        "Without clearly defined payment terms, there is no enforceable payment schedule. Disputes "
+        "about when payment is due, in what amount, and consequences for late payment will have no "
+        "contractual basis."
+    ),
+    "notice": (
+        "Without a notice clause, there is no defined formal communication process. Informal "
+        "communications (verbal, WhatsApp) may be disputed as to whether they constitute valid "
+        "legal notice for important contract events."
+    ),
+    "amendment": (
+        "Without an amendment clause, it is unclear how this contract can be changed. Either party "
+        "could argue that verbal agreements or email exchanges constitute binding amendments."
+    ),
+    "intellectual_property": (
+        "Without an IP clause, ownership of work product created under this contract is legally "
+        "ambiguous. The default may favour the creator rather than the paying party, creating "
+        "disputes about who owns deliverables after payment."
+    ),
+    "warranties": (
+        "Without warranties, there are no contractual promises about the quality or fitness of "
+        "services. The only remedies available would be under general law, which may be harder to establish."
+    ),
+}
+
+COMPLIANCE_SUGGESTED_LANGUAGE: Dict[str, str] = {
+    "termination": (
+        "Either party may terminate this Agreement by providing [30] days prior written notice. "
+        "This Agreement may also be terminated immediately by either party upon a material breach "
+        "that remains uncured for [15] days after written notice of such breach."
+    ),
+    "liability": (
+        "The total aggregate liability of either party shall not exceed the total fees paid in "
+        "the [3] months preceding the event giving rise to the claim. Neither party shall be "
+        "liable for indirect, consequential, incidental, special, or punitive damages."
+    ),
+    "force_majeure": (
+        "Neither party shall be liable for any delay or failure caused by circumstances beyond "
+        "its reasonable control, including acts of God, natural disasters, pandemics, war, or "
+        "government action, provided the affected party notifies the other within [5] business days."
+    ),
+    "dispute_resolution": (
+        "Any dispute shall first be referred to senior representatives for good faith negotiation "
+        "for [30] days. If unresolved, the dispute shall be referred to binding arbitration under "
+        "the Arbitration and Conciliation Act, 1996, with the seat of arbitration in [City]."
+    ),
+    "governing_law": (
+        "This Agreement shall be governed by and construed in accordance with the laws of India. "
+        "The parties submit to the exclusive jurisdiction of the courts of [City, State]."
+    ),
+    "confidentiality": (
+        "Each party shall keep confidential all information received from the other party that is "
+        "marked as confidential or reasonably should be understood to be confidential. This "
+        "obligation shall survive termination for [3] years. Each party shall use Confidential "
+        "Information only for the purposes of this Agreement."
+    ),
+    "intellectual_property": (
+        "All intellectual property created by the Consultant specifically for this Agreement shall, "
+        "upon full payment of all fees, vest in and be owned exclusively by the Client. The "
+        "Consultant retains ownership of all pre-existing IP and grants the Client a non-exclusive "
+        "licence to use such pre-existing IP to the extent incorporated in deliverables."
+    ),
+    "payment_terms": (
+        "The Client shall pay the Consultant [Rs. X] per [month/milestone] as set out in Schedule "
+        "[X]. Invoices shall be raised on the [1st] of each [month] and shall be payable within "
+        "[30] days. In the event of late payment, interest shall accrue at [X]% per annum."
+    ),
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════
+
+def _load_result(analysis_id: str) -> Dict:
+    """Fetch stored analysis from Supabase. Raises 404 if not found."""
+    result = get_result_by_id(analysis_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+    return result
+
+
+def _get_ca(result: Dict) -> Dict:
+    """Extract clause_analysis from stored result."""
+    return result.get("clause_analysis", {})
+
+
+def _build_clause_index(clauses: List) -> Dict[int, Dict]:
+    """Build a lookup dict of clause_id -> clause dict."""
+    return {c["id"]: c for c in clauses}
+
+
+def _group_by_clause(items: List, key: str = "clause_id") -> Dict[int, List]:
+    """Group a list of items by clause_id."""
+    groups: Dict[int, List] = {}
+    for item in items:
+        cid = item.get(key)
+        if cid is not None:
+            groups.setdefault(cid, []).append(item)
+    return groups
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DERIVATION FUNCTIONS (Pure logic — no ML models called)
+# ═══════════════════════════════════════════════════════════════════
+
+def _compute_contract_health(risks: List, compliance: Dict, obligations: List) -> Dict:
+    """
+    Derive contract health score (0-100).
+    Lower score = higher risk to the user.
+    """
+    score = 100
+
+    high_count = sum(1 for r in risks if r.get("severity") == "high")
+    medium_count = sum(1 for r in risks if r.get("severity") == "medium")
+    score -= high_count * 12
+    score -= medium_count * 4
+
+    missing_count = compliance.get("total_missing", 0)
+    score -= missing_count * 7
+
+    burden = _compute_burden_analysis(obligations)
+    if burden["imbalance_level"] == "High":
+        score -= 8
+    elif burden["imbalance_level"] == "Medium":
+        score -= 4
+
+    score = max(0, min(100, score))
+
+    if score >= 75:
+        label = "Low Risk"
+    elif score >= 50:
+        label = "Moderate Risk"
+    else:
+        label = "High Risk"
+
+    return {
+        "score": score,
+        "label": label,
+        "breakdown": {
+            "risk_penalty": high_count * 12 + medium_count * 4,
+            "compliance_penalty": missing_count * 7,
+            "imbalance_penalty": 8 if burden["imbalance_level"] == "High" else (4 if burden["imbalance_level"] == "Medium" else 0),
+        }
+    }
+
+
+def _compute_responsibility_split(obligations: List) -> Dict:
+    """
+    Derive per-party obligation percentages from the stored obligations list.
+    obligation_detector assigns 'party' to each obligation — we aggregate here.
+    """
+    party_counts: Dict[str, int] = {}
+    party_display: Dict[str, str] = {}
+    total = 0
+
+    for ob in obligations:
+        party = ob.get("party", "").strip()
+        if party and len(party) > 1:
+            key = party.lower()
+            party_counts[key] = party_counts.get(key, 0) + 1
+            if key not in party_display:
+                party_display[key] = party
+            total += 1
+
+    if total == 0:
+        return {"parties": [], "imbalance_level": "Unknown"}
+
+    sorted_parties = sorted(party_counts.items(), key=lambda x: x[1], reverse=True)
+    result_parties = []
+    for k, count in sorted_parties:
+        result_parties.append({
+            "name": party_display.get(k, k.title()),
+            "role": "",
+            "count": count,
+            "percentage": round((count / total) * 100, 1),
+        })
+
+    if len(result_parties) >= 2:
+        top_pct = result_parties[0]["percentage"]
+        imbalance = "High" if top_pct >= 70 else ("Medium" if top_pct >= 55 else "Low")
+    else:
+        imbalance = "Unknown"
+
+    return {"parties": result_parties, "imbalance_level": imbalance}
+
+
+def _compute_burden_analysis(obligations: List) -> Dict:
+    """
+    Full burden analysis: counts, ratio, imbalance, unilateral flags.
+    Reads from stored obligations (obligation_detector output).
+    obligation_detector._detect_power_imbalance already classifies obligation_type
+    per individual obligation. This function aggregates to contract level.
+    """
+    split = _compute_responsibility_split(obligations)
+    parties = split["parties"]
+    total = sum(p["count"] for p in parties)
+
+    mandatory_count = sum(1 for o in obligations if o.get("strength") == "mandatory")
+    mutual_count = sum(1 for o in obligations if o.get("obligation_type") == "mutual")
+    unilateral_count = sum(1 for o in obligations if o.get("obligation_type") == "unilateral")
+
+    burden_ratio = 0.0
+    if len(parties) >= 2 and parties[1]["count"] > 0:
+        burden_ratio = round(parties[0]["count"] / parties[1]["count"], 2)
+
+    all_text = " ".join(o.get("text", "") for o in obligations).lower()
+
+    unilateral_indemnity = bool(
+        re.search(r"indemnif\w+.{0,50}(?:all|any|every)", all_text)
+        and len(parties) >= 1 and parties[0].get("percentage", 0) > 60
+    )
+    unilateral_termination = bool(
+        re.search(r"(?:may|can)\s+terminat.{0,50}(?:any\s+time|without\s+(?:cause|notice))", all_text)
+    )
+    unilateral_liability = bool(
+        re.search(r"(?:shall\s+be\s+liable|bears?\s+(?:all|full)\s+(?:liability|risk))", all_text)
+        and len(parties) >= 1 and parties[0].get("percentage", 0) > 65
+    )
+
+    dominant_name = parties[0]["name"].lower() if parties else ""
+    top_critical = [
+        o for o in obligations
+        if o.get("strength") == "mandatory" and dominant_name in o.get("party", "").lower()
+    ][:5]
+
+    return {
+        "total_obligations": total,
+        "by_party": parties,
+        "burden_ratio": burden_ratio,
+        "imbalance_level": split["imbalance_level"],
+        "mandatory_count": mandatory_count,
+        "mutual_count": mutual_count,
+        "unilateral_count": unilateral_count,
+        "unilateral_flags": {
+            "unilateral_indemnity": unilateral_indemnity,
+            "unilateral_termination": unilateral_termination,
+            "unilateral_liability": unilateral_liability,
+        },
+        "top_critical_obligations": top_critical,
+    }
+
+
+def _infer_party_roles(entities: Dict, obligations: List) -> List[Dict]:
+    """
+    Infer party roles (Client / Consultant) from entity data and obligation patterns.
+    entity_extractor returns entities["parties"] = [{text, label}].
+    """
+    raw_parties = entities.get("parties", [])
+    if not raw_parties:
+        return []
+
+    payment_kw = {"pay", "payment", "remunerate", "compensate", "fee"}
+    service_kw = {"deliver", "provide", "perform", "execute", "complete", "submit"}
+
+    party_pay: Dict[str, int] = {}
+    party_svc: Dict[str, int] = {}
+
+    for ob in obligations:
+        party = ob.get("party", "").strip().lower()
+        text = ob.get("text", "").lower()
+        if not party:
+            continue
+        if any(kw in text for kw in payment_kw):
+            party_pay[party] = party_pay.get(party, 0) + 1
+        if any(kw in text for kw in service_kw):
+            party_svc[party] = party_svc.get(party, 0) + 1
+
+    result = []
+    for i, entity in enumerate(raw_parties[:5]):
+        name = entity.get("text", "").strip()
+        if not name or len(name) < 2:
+            continue
+
+        name_lower = name.lower()
+        pay = sum(v for k, v in party_pay.items() if name_lower in k or k in name_lower)
+        svc = sum(v for k, v in party_svc.items() if name_lower in k or k in name_lower)
+
+        if pay > svc:
+            role = "Client"
+        elif svc > pay:
+            role = "Service Provider / Consultant"
+        else:
+            role = "Client" if i == 0 else "Consultant"
+
+        result.append({
+            "name": name,
+            "type": entity.get("label", ""),
+            "inferred_role": role,
+        })
+
+    return result
+
+
+def _compute_financial_summary(entities: Dict, timeline_events: List) -> Dict:
+    """
+    Aggregate financial data from entity_extractor output.
+    monetary_values = [{text, label}], durations = [{text, label}]
+    """
+    monetary = entities.get("monetary_values", [])
+    durations = entities.get("durations", [])
+
+    amounts = []
+    currency = "INR"
+
+    for m in monetary:
+        text = m.get("text", "")
+        if any(s in text for s in ["₹", "INR", "Rs"]):
+            currency = "INR"
+        elif any(s in text for s in ["$", "USD"]):
+            currency = "USD"
+
+        nums = re.findall(r"[\d]+(?:\.\d{1,2})?", text.replace(",", ""))
+        if nums:
+            try:
+                val = float(nums[0])
+                if "lakh" in text.lower():
+                    val *= 100000
+                elif "crore" in text.lower():
+                    val *= 10000000
+                amounts.append(val)
+            except ValueError:
+                pass
+
+    amounts.sort()
+    monthly_amount = amounts[0] if amounts else None
+    lump_sum = amounts[-1] if len(amounts) > 1 else None
+
+    duration_months = None
+    for d in durations:
+        text = d.get("text", "").lower()
+        m = re.search(r"(\d+)", text)
+        if m:
+            num = int(m.group(1))
+            if "year" in text:
+                duration_months = num * 12
+                break
+            elif "month" in text:
+                duration_months = num
+                break
+
+    total_value = None
+    if monthly_amount and duration_months:
+        total_value = monthly_amount * duration_months
+
+    return {
+        "monthly_amount": monthly_amount,
+        "lump_sum_amount": lump_sum,
+        "currency": currency,
+        "duration_months": duration_months,
+        "total_estimated_value": total_value,
+        "liability_cap_defined": False,  # updated by caller via _check_liability_cap
+        "liability_cap_amount": None,
+        "raw_monetary_values": [m.get("text") for m in monetary],
+    }
+
+
+def _check_liability_cap_from_compliance(compliance: Dict) -> bool:
+    """
+    Check compliance structural validators for liability cap.
+    compliance_checker STRUCTURAL_VALIDATORS["liability"]["checks"] includes "cap_defined".
+    """
+    for detail in compliance.get("details", []):
+        if detail.get("clause_type") == "liability":
+            for qc in detail.get("quality_checks", []):
+                if qc.get("name") == "cap_defined" and qc.get("passed"):
+                    return True
+    return False
+
+
+def _compute_lifecycle(timeline_events: List) -> Dict:
+    """
+    Derive contract lifecycle from timeline events.
+    timeline_extractor returns events with parsed_date (ISO YYYY-MM-DD) and type fields.
+    """
+    from datetime import datetime, timedelta
+
+    start_date = None
+    end_date = None
+    notice_period_days = None
+    duration_months = None
+
+    for ev in timeline_events:
+        etype = ev.get("type", "")
+        parsed = ev.get("parsed_date")
+        value = ev.get("value", "").lower()
+        desc = ev.get("description", "").lower()
+
+        if parsed and etype == "date" and start_date is None:
+            if any(kw in desc for kw in ["start", "commence", "effective", "begin"]):
+                start_date = parsed
+
+        if etype == "duration":
+            m = re.search(r"(\d+)\s*(?:month|year|week|day)", value, re.IGNORECASE)
+            if m:
+                num = int(m.group(1))
+                if "year" in value:
+                    duration_months = num * 12
+                elif "month" in value:
+                    duration_months = num
+
+        if etype == "notice":
+            m = re.search(r"(\d+)", value)
+            if m:
+                num = int(m.group(1))
+                notice_period_days = num * 30 if "month" in value else (num * 7 if "week" in value else num)
+
+    # Compute end date
+    if start_date and duration_months:
+        try:
+            from dateutil.relativedelta import relativedelta
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_date = (start_dt + relativedelta(months=int(duration_months))).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # Compute notice deadline
+    notice_deadline = None
+    if end_date and notice_period_days:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            notice_deadline = (end_dt - timedelta(days=notice_period_days)).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+    # Build key dates
+    key_dates = []
+    seen = set()
+
+    def _add_date(event_name, date_val, urgency="normal"):
+        k = (event_name, date_val)
+        if date_val and k not in seen:
+            seen.add(k)
+            key_dates.append({"event": event_name, "date": date_val, "urgency": urgency})
+
+    _add_date("Contract Start", start_date)
+    _add_date("Contract End", end_date)
+    _add_date("Notice Deadline", notice_deadline, "high")
+
+    for ev in timeline_events:
+        if ev.get("parsed_date") and ev.get("type") == "date":
+            _add_date(ev.get("description", "Date Reference"), ev["parsed_date"])
+
+    return {
+        "contract_start": start_date,
+        "contract_end": end_date,
+        "notice_deadline": notice_deadline,
+        "notice_period_days": notice_period_days,
+        "duration_months": duration_months,
+        "renewal_deadline": None,
+        "post_termination_obligations": [],
+        "critical_deadlines": [kd for kd in key_dates if kd["urgency"] == "high"],
+        "key_dates_table": key_dates,
+    }
+
+
+def _enrich_risks(risks: List) -> List[Dict]:
+    """
+    Add impact_category, exposure_level, suggested_fix, negotiation_advice
+    to each risk. These fields do not exist in risk_detector.py output.
+    """
+    enriched = []
+    for r in risks:
+        rt = r.get("risk_type", "")
+        enriched.append({
+            **r,
+            "impact_category":    RISK_IMPACT_CATEGORY.get(rt, "Operational"),
+            "exposure_level":     RISK_EXPOSURE_LEVEL.get(rt, "Undefined"),
+            "suggested_fix":      RISK_SUGGESTED_FIX.get(rt, "Review and negotiate this clause with qualified legal counsel."),
+            "negotiation_advice": RISK_NEGOTIATION_ADVICE.get(rt, "Seek balanced and mutual terms for both parties."),
+        })
+    return enriched
+
+
+def _enrich_compliance(compliance: Dict) -> List[Dict]:
+    """
+    Enrich compliance details with balanced/enforceable flags, consequence, priority, suggested_language.
+    compliance_checker returns quality_score per clause — we derive status flags from it.
+    """
+    enriched = []
+    for detail in compliance.get("details", []):
+        ct = detail.get("clause_type", "")
+        found = detail.get("found", False)
+        quality = detail.get("quality_score", 1.0)
+
+        if not found:
+            status = "missing"
+            balanced = enforceable = structured_properly = None
+            risk_level = "high" if detail.get("weight", 0) >= 9 else ("medium" if detail.get("weight", 0) >= 7 else "low")
+        elif quality >= 0.8:
+            status = "present"
+            balanced = enforceable = structured_properly = True
+            risk_level = "low"
+        else:
+            status = "weak"
+            balanced = quality >= 0.6
+            enforceable = quality >= 0.5
+            structured_properly = False
+            risk_level = "medium"
+
+        enriched.append({
+            **detail,
+            "status": status,
+            "balanced": balanced,
+            "enforceable": enforceable,
+            "structured_properly": structured_properly,
+            "risk_level": risk_level,
+            "consequence": COMPLIANCE_CONSEQUENCES.get(ct) if not found else None,
+            "priority": "High" if risk_level == "high" else ("Medium" if risk_level == "medium" else None),
+            "suggested_language": COMPLIANCE_SUGGESTED_LANGUAGE.get(ct) if (not found or status == "weak") else None,
+        })
+
+    order = {"missing": 0, "weak": 1, "present": 2}
+    enriched.sort(key=lambda x: order.get(x["status"], 3))
+    return enriched
+
+
+def _enrich_plain_english(plain_english: List, clauses: List, risks: List, responsibility: Dict) -> List[Dict]:
+    """
+    Add complexity metrics to plain_english entries.
+    plain_english comes from analyze.py: [{clause_id, original, simplified}]
+    """
+    risk_map: Dict[int, str] = {}
+    for r in risks:
+        cid = r.get("clause_id")
+        sev = r.get("severity", "low")
+        if cid and (cid not in risk_map or sev == "high"):
+            risk_map[cid] = sev
+
+    passive_clause_ids = {p.get("clause_id") for p in responsibility.get("passive_voice", [])}
+
+    enriched = []
+    for pe in plain_english:
+        original = pe.get("original", "")
+        simplified = pe.get("simplified", "")
+        cid = pe.get("clause_id")
+
+        orig_words = max(len(original.split()), 1)
+        simp_words = len(simplified.split()) if simplified else 0
+        reduction = max(0, round(((orig_words - simp_words) / orig_words) * 100))
+
+        orig_sents = max(len(re.split(r'[.!?।]', original)), 1) if original else 0
+        simp_sents = len(re.split(r'[.!?।]', simplified)) if simplified else 0
+
+        enriched.append({
+            **pe,
+            "complexity_reduction_percentage": reduction,
+            "passive_voice_removed": cid in passive_clause_ids,
+            "original_sentence_count": orig_sents,
+            "simplified_sentence_count": simp_sents,
+            "risk_level": risk_map.get(cid, "low"),
+        })
+    return enriched
+
+
+def _enrich_ambiguity(responsibility: Dict) -> Dict:
+    """
+    Enrich vague_terms and passive_voice with lookup-table fields.
+    responsibility_detector already returns the base fields —
+    this adds why_vague, suggested_rewrite, active_rewrite from tables above.
+    """
+    enriched_vague = []
+    for vt in responsibility.get("vague_terms", []):
+        term = vt.get("term", "").lower()
+        enriched_vague.append({
+            **vt,
+            "why_vague":        VAGUE_TERM_WHY.get(term, vt.get("issue", "This term lacks a precise definition.")),
+            "suggested_rewrite": VAGUE_TERM_REWRITE.get(term, vt.get("suggestion", "Provide a specific, measurable definition.")),
+            "preview_text":     vt.get("preview_text", vt.get("context", "")),
+        })
+
+    enriched_passive = []
+    for pv in responsibility.get("passive_voice", []):
+        enriched_passive.append({
+            **pv,
+            "active_rewrite": pv.get("active_rewrite", f"[Specify responsible party] shall {pv.get('matched_text', 'perform the required action')}."),
+        })
+
+    return {**responsibility, "vague_terms": enriched_vague, "passive_voice": enriched_passive}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Overview Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/overview")
+async def get_overview(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    risks       = ca.get("risks", [])
+    compliance  = ca.get("compliance", {})
+    obligations = ca.get("obligations", [])
+    entities    = ca.get("entities", {})
+    responsibility = ca.get("responsibility", {})
+    timeline    = ca.get("timeline", {})
+    explanations = ca.get("explanations", {})
+
+    try:
+        health = _compute_contract_health(risks, compliance, obligations)
+    except Exception as e:
+        health = None
+        logger.warning(f"Health compute failed: {e}")
+
+    try:
+        resp_split = _compute_responsibility_split(obligations)
+        parties_with_roles = _infer_party_roles(entities, obligations)
+        for p in resp_split.get("parties", []):
+            for pr in parties_with_roles:
+                if p["name"].lower() in pr["name"].lower() or pr["name"].lower() in p["name"].lower():
+                    p["role"] = pr["inferred_role"]
+                    break
+    except Exception as e:
+        resp_split = None
+        parties_with_roles = []
+        logger.warning(f"Responsibility split failed: {e}")
+
+    try:
+        financial = _compute_financial_summary(entities, timeline.get("events", []))
+        if _check_liability_cap_from_compliance(compliance):
+            financial["liability_cap_defined"] = True
+    except Exception as e:
+        financial = None
+        logger.warning(f"Financial compute failed: {e}")
+
+    high   = sum(1 for r in risks if r.get("severity") == "high")
+    medium = sum(1 for r in risks if r.get("severity") == "medium")
+    low    = sum(1 for r in risks if r.get("severity") == "low")
+
+    present_strong = sum(1 for d in compliance.get("details", []) if d.get("found") and d.get("quality_score", 0) >= 0.8)
+    present_weak   = sum(1 for d in compliance.get("details", []) if d.get("found") and d.get("quality_score", 0) < 0.8)
+    missing_count  = compliance.get("total_missing", 0)
+    missing_names  = [m.get("clause_type", "").replace("_", " ").title() for m in compliance.get("missing_clauses", [])]
+
+    vague_count   = len(responsibility.get("vague_terms", []))
+    passive_count = len(responsibility.get("passive_voice", []))
+    affected_ids  = set(
+        v.get("clause_id") for v in responsibility.get("vague_terms", [])
+    ) | set(p.get("clause_id") for p in responsibility.get("passive_voice", []))
+
+    top_risks = sorted(risks, key=lambda r: {"high": 0, "medium": 1, "low": 2}.get(r.get("severity"), 3))[:3]
+    priority_actions = []
+    for r in top_risks:
+        priority_actions.append(f"Address {r.get('risk_type', 'risk').replace('_', ' ')} in Clause {r.get('clause_id')}")
+    if missing_names:
+        priority_actions.append(f"Add missing clauses: {', '.join(missing_names[:2])}")
+
+    dominant_party = resp_split["parties"][0] if resp_split and resp_split.get("parties") else None
+    balance_text = (
+        f"Skewed toward {dominant_party['name']} ({dominant_party['percentage']}%)"
+        if dominant_party else "Unable to determine"
+    )
+
+    return {
+        "contract_health": health,
+        "responsibility_split": resp_split,
+        "risk_distribution": {"high": high, "medium": medium, "low": low, "total": len(risks)},
+        "compliance_summary": {
+            "present_and_strong": present_strong,
+            "present_but_weak": present_weak,
+            "missing": missing_count,
+            "total_checked": compliance.get("total_checked", 0),
+        },
+        "ambiguity_summary": {
+            "total_vague_terms": vague_count,
+            "total_passive_voice": passive_count,
+            "affected_clauses": len(affected_ids),
+        },
+        "critical_gaps": {
+            "missing_clause_count": missing_count,
+            "high_severity_risk_count": high,
+            "missing_clauses": missing_names,
+        },
+        "financial_exposure": financial,
+        "executive_summary": {
+            "contract_type": ca.get("contract_type", {}).get("name", "Unknown"),
+            "parties": parties_with_roles,
+            "overall_assessment": explanations.get("overall_summary", ""),
+            "top_risks": [{"severity": r.get("severity"), "description": r.get("description")} for r in top_risks],
+            "missing_clauses": missing_names,
+            "obligation_balance": balance_text,
+            "priority_actions": priority_actions,
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Plain English Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/plain-english")
+async def get_plain_english(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    plain_english  = ca.get("plain_english", [])
+    clauses        = ca.get("clauses", [])
+    risks          = ca.get("risks", [])
+    responsibility = ca.get("responsibility", {})
+
+    enriched = _enrich_plain_english(plain_english, clauses, risks, responsibility)
+    pe_ids = {pe["clause_id"] for pe in enriched}
+
+    # Add entries for clauses without LLM translation (LLM only ran on first 15)
+    for clause in clauses:
+        if clause["id"] not in pe_ids:
+            enriched.append({
+                "clause_id": clause["id"],
+                "original": clause["text"][:300],
+                "simplified": None,
+                "complexity_reduction_percentage": None,
+                "passive_voice_removed": False,
+                "original_sentence_count": len(re.split(r'[.!?।]', clause["text"])),
+                "simplified_sentence_count": None,
+                "risk_level": "low",
+            })
+
+    enriched.sort(key=lambda x: x["clause_id"])
+    return {"clauses": enriched, "total": len(enriched)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Risks Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/risks")
+async def get_risks(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    risks      = ca.get("risks", [])
+    clauses    = ca.get("clauses", [])
+    compliance = ca.get("compliance", {})
+
+    enriched      = _enrich_risks(risks)
+    clause_index  = _build_clause_index(clauses)
+    risk_by_clause: Dict[int, List] = {}
+    for r in enriched:
+        cid = r.get("clause_id")
+        if cid is not None:
+            risk_by_clause.setdefault(cid, []).append(r)
+
+    risk_clauses = []
+    for cid, clause_risks in risk_by_clause.items():
+        clause = clause_index.get(cid, {})
+        severities = [r.get("severity") for r in clause_risks]
+        top_sev = "high" if "high" in severities else ("medium" if "medium" in severities else "low")
+        sn = clause.get("section_number", "")
+        risk_clauses.append({
+            "clause_id": cid,
+            "clause_title": f"Clause {cid}" + (f" – {sn}" if sn else ""),
+            "clause_text": clause.get("text", "")[:400],
+            "top_severity": top_sev,
+            "risks": clause_risks,
+        })
+
+    risk_clauses.sort(key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x["top_severity"], 3))
+
+    high   = sum(1 for r in risks if r.get("severity") == "high")
+    medium = sum(1 for r in risks if r.get("severity") == "medium")
+    low    = sum(1 for r in risks if r.get("severity") == "low")
+
+    return {"risk_clauses": risk_clauses, "total_risks": len(risks), "high_count": high, "medium_count": medium, "low_count": low}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Ambiguity Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/ambiguity")
+async def get_ambiguity(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    responsibility = ca.get("responsibility", {})
+    clauses        = ca.get("clauses", [])
+    clause_index   = _build_clause_index(clauses)
+
+    enriched = _enrich_ambiguity(responsibility)
+    vague_by_clause   = _group_by_clause(enriched.get("vague_terms", []))
+    passive_by_clause = _group_by_clause(enriched.get("passive_voice", []))
+    all_ids = set(vague_by_clause.keys()) | set(passive_by_clause.keys())
+
+    ambiguous_clauses = []
+    for cid in sorted(all_ids):
+        clause = clause_index.get(cid, {})
+        sn = clause.get("section_number", "")
+        ambiguous_clauses.append({
+            "clause_id": cid,
+            "clause_title": f"Clause {cid}" + (f" – {sn}" if sn else ""),
+            "clause_text": clause.get("text", "")[:400],
+            "ambiguities": vague_by_clause.get(cid, []),
+            "passive_voice_instances": passive_by_clause.get(cid, []),
+            "total_ambiguity_count": len(vague_by_clause.get(cid, [])) + len(passive_by_clause.get(cid, [])),
+        })
+
+    ambiguous_clauses.sort(key=lambda x: -x["total_ambiguity_count"])
+
+    return {
+        "ambiguous_clauses": ambiguous_clauses,
+        "total_vague_terms": len(enriched.get("vague_terms", [])),
+        "total_passive_voice": len(enriched.get("passive_voice", [])),
+        "ambiguity_score": responsibility.get("ambiguity_score", 0),
+        "total_clauses_affected": len(ambiguous_clauses),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Timeline Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/timeline")
+async def get_timeline(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    timeline      = ca.get("timeline", {})
+    clauses       = ca.get("clauses", [])
+    clause_index  = _build_clause_index(clauses)
+    events        = timeline.get("events", [])
+    events_by_clause = _group_by_clause(events)
+
+    timeline_clauses = []
+    for cid in sorted(k for k in events_by_clause.keys() if k is not None):
+        clause = clause_index.get(cid, {})
+        sn = clause.get("section_number", "")
+        clause_events = events_by_clause[cid]
+        timeline_clauses.append({
+            "clause_id": cid,
+            "clause_title": f"Clause {cid}" + (f" – {sn}" if sn else ""),
+            "clause_text": clause.get("text", "")[:300],
+            "detected_elements": [
+                {"type": ev.get("type"), "value": ev.get("value"), "parsed_date": ev.get("parsed_date"), "description": ev.get("description")}
+                for ev in clause_events
+            ],
+            "has_critical_deadline": any(ev.get("type") in ("deadline", "termination") for ev in clause_events),
+        })
+
+    try:
+        lifecycle = _compute_lifecycle(events)
+    except Exception as e:
+        lifecycle = {}
+        logger.warning(f"Lifecycle compute failed: {e}")
+
+    return {
+        "timeline_clauses": timeline_clauses,
+        "lifecycle": lifecycle,
+        "key_dates_table": lifecycle.get("key_dates_table", []),
+        "total_events": timeline.get("total_events", 0),
+        "categories": timeline.get("categories", {}),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Entities Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/entities")
+async def get_entities(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    entities    = ca.get("entities", {})
+    clauses     = ca.get("clauses", [])
+    obligations = ca.get("obligations", [])
+    timeline    = ca.get("timeline", {})
+    compliance  = ca.get("compliance", {})
+
+    primary_parties = _infer_party_roles(entities, obligations)
+    financial = _compute_financial_summary(entities, timeline.get("events", []))
+    if _check_liability_cap_from_compliance(compliance):
+        financial["liability_cap_defined"] = True
+
+    # entity_extractor does not store clause_id per entity, so we scan clause texts
+    all_entity_texts = {e.get("text", "") for cat in entities.values() if isinstance(cat, list) for e in cat if e.get("text")}
+
+    entity_clauses = []
+    for clause in clauses:
+        clause_text = clause.get("text", "")
+        found_types = []
+        count = 0
+        for entity_text in all_entity_texts:
+            if entity_text and entity_text in clause_text:
+                count += 1
+                for cat_name, cat_list in entities.items():
+                    if isinstance(cat_list, list) and any(e.get("text") == entity_text for e in cat_list):
+                        found_types.append(cat_name)
+        if count > 0:
+            sn = clause.get("section_number", "")
+            entity_clauses.append({
+                "clause_id": clause["id"],
+                "clause_title": f"Clause {clause['id']}" + (f" – {sn}" if sn else ""),
+                "clause_text": clause_text[:300],
+                "entity_types_found": list(set(found_types)),
+                "entity_count": count,
+            })
+
+    return {
+        "entity_clauses": entity_clauses,
+        "primary_parties": primary_parties,
+        "financial_summary": financial,
+        "other_entities": {
+            "organizations":    [e.get("text") for e in entities.get("parties", []) if e.get("label") == "ORG"],
+            "legal_references": [e.get("text") for e in entities.get("legal_references", [])],
+            "dates":            [e.get("text") for e in entities.get("dates", [])],
+        },
+        "liability_exposure": {
+            "cap_defined": financial.get("liability_cap_defined", False),
+            "warning": None if financial.get("liability_cap_defined") else "No liability cap detected. Financial exposure may be unlimited.",
+        },
+        "raw_entities": entities,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Obligations Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/obligations")
+async def get_obligations(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    obligations  = ca.get("obligations", [])
+    clauses      = ca.get("clauses", [])
+    clause_index = _build_clause_index(clauses)
+    burden       = _compute_burden_analysis(obligations)
+    obls_by_clause = _group_by_clause(obligations)
+
+    obligation_clauses = []
+    for cid in sorted(obls_by_clause.keys()):
+        clause = clause_index.get(cid, {})
+        sn = clause.get("section_number", "")
+        clause_obls = obls_by_clause[cid]
+        parties_in = list(set(o.get("party", "Unknown") for o in clause_obls))
+        primary = max(parties_in, key=lambda p: sum(1 for o in clause_obls if o.get("party") == p)) if parties_in else "Unknown"
+
+        obligation_clauses.append({
+            "clause_id": cid,
+            "clause_title": f"Clause {cid}" + (f" – {sn}" if sn else ""),
+            "clause_text": clause.get("text", "")[:300],
+            "obligations": clause_obls,
+            "primary_party": primary,
+            "obligation_count": len(clause_obls),
+        })
+
+    return {
+        "obligation_clauses": obligation_clauses,
+        "burden_analysis": burden,
+        "top_critical_obligations": burden.get("top_critical_obligations", []),
+        "mutual_vs_unilateral": {
+            "mutual": burden.get("mutual_count", 0),
+            "unilateral": burden.get("unilateral_count", 0),
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Compliance Tab
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/{analysis_id}/compliance")
+async def get_compliance(analysis_id: str):
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    compliance = ca.get("compliance", {})
+    clauses    = ca.get("clauses", [])
+    enriched   = _enrich_compliance(compliance)
+
+    # Map each compliance item to the actual clause text via matched_keyword
+    for item in enriched:
+        item["clause_id"] = None
+        item["clause_text"] = None
+        if item.get("found") and item.get("matched_keyword"):
+            kw = item["matched_keyword"].lower()
+            for clause in clauses:
+                if kw in clause.get("text", "").lower():
+                    item["clause_id"] = clause["id"]
+                    item["clause_text"] = clause["text"][:300]
+                    break
+
+    weak_count = sum(1 for d in enriched if d.get("status") == "weak")
+
+    return {
+        "compliance_items": enriched,
+        "summary": {
+            "present_and_strong": compliance.get("total_found", 0) - weak_count,
+            "present_but_weak": weak_count,
+            "missing": compliance.get("total_missing", 0),
+            "total_checked": compliance.get("total_checked", 0),
+            "compliance_score": compliance.get("compliance_score", 0),
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ROUTE: Re-Analyze Single Clause (What-If)
+# ═══════════════════════════════════════════════════════════════════
+
+class ReanalyzeRequest(BaseModel):
+    clause_id: int
+    modified_text: str
+
+
+@router.post("/{analysis_id}/reanalyze-clause")
+async def reanalyze_clause(analysis_id: str, req: ReanalyzeRequest):
+    """
+    Re-run risk + ambiguity analysis on a single modified clause.
+    Returns before/after comparison. Does NOT re-run the full pipeline.
+    """
+    result = _load_result(analysis_id)
+    ca = _get_ca(result)
+
+    clauses = ca.get("clauses", [])
+    original = next((c for c in clauses if c["id"] == req.clause_id), None)
+    if not original:
+        raise HTTPException(status_code=404, detail=f"Clause {req.clause_id} not found.")
+
+    orig_risks = [r for r in ca.get("risks", []) if r.get("clause_id") == req.clause_id]
+    orig_risk_score = sum(r.get("risk_score", 0) for r in orig_risks)
+    orig_ambiguities = [v for v in ca.get("responsibility", {}).get("vague_terms", []) if v.get("clause_id") == req.clause_id]
+    orig_passives = [p for p in ca.get("responsibility", {}).get("passive_voice", []) if p.get("clause_id") == req.clause_id]
+
+    try:
+        from services.risk_detector import detect_risks
+        from services.responsibility_detector import detect_responsibility_issues
+
+        modified_list = [{"id": req.clause_id, "text": req.modified_text, "section_number": ""}]
+        new_risks = detect_risks(modified_list, "en")
+        new_risk_score = sum(r.get("risk_score", 0) for r in new_risks)
+
+        new_resp = detect_responsibility_issues(modified_list, "en")
+        new_ambiguities = new_resp.get("vague_terms", [])
+        new_passives = new_resp.get("passive_voice", [])
+
+    except Exception as e:
+        logger.error(f"Re-analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Re-analysis failed: {str(e)}")
+
+    diff = orig_risk_score - new_risk_score
+    improvement = (
+        f"Risk score reduced by {diff} points." if diff > 0
+        else (f"Risk score increased by {abs(diff)} points." if diff < 0
+              else "No change in risk score.")
+    )
+
+    return {
+        "clause_id": req.clause_id,
+        "original_text": original.get("text", "")[:400],
+        "modified_text": req.modified_text[:400],
+        "before": {
+            "risk_score": orig_risk_score,
+            "risk_count": len(orig_risks),
+            "risks": orig_risks,
+            "ambiguity_count": len(orig_ambiguities),
+            "passive_count": len(orig_passives),
+        },
+        "after": {
+            "risk_score": new_risk_score,
+            "risk_count": len(new_risks),
+            "risks": new_risks,
+            "ambiguity_count": len(new_ambiguities),
+            "passive_count": len(new_passives),
+        },
+        "improvement_summary": improvement,
+    }
+```
+
+---
+
+## PART 3 — FRONTEND / UI REDESIGN
+
+*(All layout, tab, panel, and visual specifications remain identical to the previous version — left sidebar 20%, middle panel 40%, right panel 40%, fade selection effect, Overview/Plain English/Risks/Ambiguity/Timeline/Entities/Obligations/Compliance tabs, full-width fix, zero dummy data.)*
+
+**Tab to API endpoint mapping:**
+
+| Tab | Endpoint | Key data used |
+|-----|----------|---------------|
+| Overview | `GET /api/aggregate/{id}/overview` | `contract_health`, `responsibility_split`, `risk_distribution`, `compliance_summary`, `ambiguity_summary`, `critical_gaps`, `financial_exposure`, `executive_summary` |
+| Plain English | `GET /api/aggregate/{id}/plain-english` | `clauses[].simplified`, `complexity_reduction_percentage`, `risk_level` |
+| Risks | `GET /api/aggregate/{id}/risks` | `risk_clauses[].risks[].suggested_fix`, `negotiation_advice`, `impact_category`, `exposure_level` |
+| Ambiguity | `GET /api/aggregate/{id}/ambiguity` | `ambiguous_clauses[].ambiguities[].why_vague`, `suggested_rewrite`, `preview_text` |
+| Timeline | `GET /api/aggregate/{id}/timeline` | `timeline_clauses`, `lifecycle`, `key_dates_table` |
+| Entities | `GET /api/aggregate/{id}/entities` | `primary_parties`, `financial_summary`, `liability_exposure` |
+| Obligations | `GET /api/aggregate/{id}/obligations` | `obligation_clauses`, `burden_analysis`, `mutual_vs_unilateral` |
+| Compliance | `GET /api/aggregate/{id}/compliance` | `compliance_items[].status`, `consequence`, `suggested_language`, `priority` |
+| What-If (inline) | `POST /api/aggregate/{id}/reanalyze-clause` | `before`, `after`, `improvement_summary` |
+
+---
+
+## PART 4 — COMPLETE ACTION SUMMARY
+
+| # | File | Action | Current State | Priority |
+|---|------|--------|---------------|----------|
+| 1 | `entity_extractor.py` | Remove `en_core_web_trf` try block; use `en_core_web_sm` directly | Fallback works, just swap primary | High |
+| 2 | `obligation_detector.py` | Same spaCy swap | Same fallback | High |
+| 3 | `responsibility_detector.py` | Same spaCy swap | Same fallback | High |
+| 4 | `responsibility_detector.py` | Add `char_start`, `char_end`, `preview_text` to vague_terms; `active_rewrite` to passive_voice | Base fields exist, adding new ones | High |
+| 5 | `risk_detector.py` | Replace model name string: mpnet → MiniLM | Already has model loading logic | High |
+| 6 | `contract_comparator.py` | Replace model name + raise SEMANTIC_THRESHOLD to 0.72 | Currently 0.55 | High |
+| 7 | `clause_segmenter.py` | Replace 20-char gap heuristic with range intersection check | Heuristic exists | Medium |
+| 8 | `risk_detector.py` | Threshold already 0.65 — NO CHANGE NEEDED | Already correct | Done |
+| 9 | **NEW** `analysis_aggregator.py` | Create full file as in Part 2 | Does not exist | Critical |
+| 10 | `main.py` / `app.py` | Register `aggregator_router` from new file | Other 4 routers already registered | Critical |
+| 11 | `requirements.txt` | Add `python-dateutil` (needed for lifecycle date arithmetic) | Likely not present | Low |
+| 12 | Frontend | Fix full-width layout — remove max-width constraints in root container | — | Critical |
+| 13 | Frontend | Replace horizontal tabs with left vertical sidebar | — | Critical |
+| 14 | Frontend | Overview tab — middle: charts, right: exec summary | — | Critical |
+| 15 | Frontend | Plain English tab — clause list + fade effect + metrics panel | — | High |
+| 16 | Frontend | Risks tab — filtered clause list + fix templates + negotiation advice | — | High |
+| 17 | Frontend | Ambiguity tab — vague clause list + precision rewrite panel | — | High |
+| 18 | Frontend | Timeline tab — clause list + combined lifecycle rail | — | High |
+| 19 | Frontend | Entities tab — entity clauses + financial exposure dashboard | — | Medium |
+| 20 | Frontend | Obligations tab — clause list + burden gauge + split chart | — | Medium |
+| 21 | Frontend | Compliance tab — missing first + gap analysis + consequences | — | High |
+| 22 | Frontend | Inline What-If — "Edit & Re-Analyze" per clause card | — | Medium |
+| 23 | Frontend | "Generate Negotiation Email" + "Export Report" in Risk/Compliance | — | Low |
+| 24 | Frontend | Visual polish — severity glow, pulse badges, fade, shadows, hover lift | — | Medium |
+| 25 | Frontend | Loading skeletons, empty states, error states — zero dummy data | — | Critical |
