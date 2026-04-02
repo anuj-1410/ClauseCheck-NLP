@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Tuple, List
 
 logger = logging.getLogger(__name__)
+_MAX_EXTRACTED_PDF_IMAGES = 20
+_FULL_PAGE_IMAGE_AREA_RATIO = 0.85
+_FULL_PAGE_IMAGE_SIDE_RATIO = 0.92
 
 try:
     import fitz  # PyMuPDF
@@ -87,30 +90,70 @@ def _extract_images_from_pdf(file_bytes: bytes) -> List[str]:
     """Extract embedded images, photos, and stamps using PyMuPDF."""
     if not _USE_FITZ:
         return []
-    
+
+    doc = None
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         images = []
+        seen_xrefs = set()
         for i in range(len(doc)):
             page = doc[i]
             image_list = page.get_images(full=True)
             for img_info in image_list:
                 xref = img_info[0]
+                if xref in seen_xrefs:
+                    continue
+                seen_xrefs.add(xref)
+
+                if _looks_like_full_page_scan(page, xref):
+                    continue
+
                 base_image = doc.extract_image(xref)
                 image_bytes = base_image["image"]
                 img_ext = base_image["ext"]
-                
+
                 # Small files (<100 bytes) are usually tracking pixels/lines, skip them
                 if len(image_bytes) < 100:
                     continue
-                    
-                encoded = base64.b64encode(image_bytes).decode('utf-8')
+
+                encoded = base64.b64encode(image_bytes).decode("utf-8")
                 mime = f"image/{img_ext}"
                 images.append(f"data:{mime};base64,{encoded}")
+                if len(images) >= _MAX_EXTRACTED_PDF_IMAGES:
+                    logger.info(
+                        "Reached extracted image cap (%s). Skipping remaining PDF images.",
+                        _MAX_EXTRACTED_PDF_IMAGES,
+                    )
+                    return images
         return images
     except Exception as e:
         logger.warning(f"Failed to extract images with PyMuPDF: {e}")
         return []
+    finally:
+        if doc is not None:
+            doc.close()
+
+
+def _looks_like_full_page_scan(page, xref: int) -> bool:
+    """Skip page-sized scan images so attachments only show real embedded assets."""
+    try:
+        rects = page.get_image_rects(xref)
+    except Exception:
+        return False
+
+    page_rect = page.rect
+    page_area = max(page_rect.width * page_rect.height, 1)
+
+    for rect in rects:
+        width_ratio = rect.width / max(page_rect.width, 1)
+        height_ratio = rect.height / max(page_rect.height, 1)
+        area_ratio = (rect.width * rect.height) / page_area
+        if area_ratio >= _FULL_PAGE_IMAGE_AREA_RATIO:
+            return True
+        if width_ratio >= _FULL_PAGE_IMAGE_SIDE_RATIO and height_ratio >= _FULL_PAGE_IMAGE_SIDE_RATIO:
+            return True
+
+    return False
 
 
 def _parse_pdf(file_bytes: bytes) -> Tuple[str, bool, List[str]]:

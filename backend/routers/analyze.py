@@ -34,7 +34,7 @@ from services.jurisdiction_engine import (
 )
 from services.llm_service import (
     translate_to_plain_english, generate_smart_summary,
-    is_available as llm_available, translate_texts,
+    is_available as llm_available, translate_texts, translate_clauses_to_plain_english,
 )
 from db.supabase_client import store_result, get_result_by_id
 
@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 _TRANSLATION_LANGUAGE_CODES = {"en", "hi"}
+_PLAIN_ENGLISH_CLAUSE_LIMIT = 15
 
 
 @router.get("/options")
@@ -333,17 +334,27 @@ def _build_plain_english_entries(
     clauses: List[Dict[str, Any]],
     language: str,
 ) -> List[Dict[str, str]]:
-    """Build plain-language summaries for every clause when the LLM is available."""
+    """Build plain-language summaries for a limited number of clauses when the LLM is available."""
     plain_english = []
-    if not llm_available():
+    if not llm_available() or not clauses:
         return plain_english
 
-    for clause in clauses:
-        try:
-            simplified = translate_to_plain_english(clause["text"], language)
-        except Exception as exc:
-            logger.warning("LLM translation failed for clause %s: %s", clause.get("id"), exc)
-            simplified = "[Translation unavailable]"
+    translatable_clauses = clauses[:_PLAIN_ENGLISH_CLAUSE_LIMIT]
+
+    clause_texts = [clause["text"] for clause in translatable_clauses]
+    try:
+        simplified_texts = translate_clauses_to_plain_english(clause_texts, language)
+    except Exception as exc:
+        logger.warning("Batch plain-English generation failed: %s", exc)
+        simplified_texts = clause_texts
+
+    for clause, simplified in zip(translatable_clauses, simplified_texts):
+        if simplified == clause["text"]:
+            try:
+                simplified = translate_to_plain_english(clause["text"], language)
+            except Exception as exc:
+                logger.warning("LLM translation failed for clause %s: %s", clause.get("id"), exc)
+                simplified = "[Translation unavailable]"
 
         plain_english.append({
             "clause_id": clause["id"],

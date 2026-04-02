@@ -9,7 +9,9 @@ import inspect
 import logging
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -40,16 +42,28 @@ except ImportError:
     logger.warning("PyMuPDF not installed. PDF OCR will not be available.")
 
 
-_OCR_ENGINES: Dict[str, object] = {}
+_OCR_ENGINES: Dict[Tuple[int, int, str], object] = {}
+_OCR_ENGINES_LOCK = threading.Lock()
+_OCR_ENGINE_GENERATION = 0
+_PAGE_OCR_EXECUTOR: Optional[ThreadPoolExecutor] = None
+_PAGE_OCR_EXECUTOR_MAX_WORKERS = 0
+_PAGE_OCR_EXECUTOR_LOCK = threading.Lock()
 _OCR_OPTIONS = {
     "use_gpu": False,
     "use_angle_cls": False,
     "show_log": False,
+    "enable_mkldnn": True,
+    "cpu_threads": min(8, os.cpu_count() or 4),
+    "mkldnn_cache_capacity": 10,
+    "text_det_limit_side_len": 960,
+    "text_det_limit_type": "max",
+    "text_recognition_batch_size": 8,
+    "page_parallelism": max(1, min(4, os.cpu_count() or 1)),
 }
 _PADDLEOCR_INIT_PARAMS: Optional[set[str]] = None
-_PDF_RENDER_DPI = 200
-_OCR_PREVIEW_MAX_SIDE = 1400
-_OCR_PAGE_MAX_SIDE = 2200
+_PADDLEOCR_PREDICT_PARAMS: Optional[set[str]] = None
+_PDF_RENDER_DPI = 150
+_OCR_PAGE_MAX_SIDE = 1536
 _OCR_LANGUAGE_SAMPLE_PAGES = 1
 _LANGUAGE_ALIASES = {
     "eng": "en",
@@ -70,22 +84,62 @@ def configure_paddleocr(
     use_gpu: bool = False,
     use_angle_cls: bool = False,
     show_log: bool = False,
+    enable_mkldnn: Optional[bool] = None,
+    cpu_threads: Optional[int] = None,
+    mkldnn_cache_capacity: int = 10,
+    text_det_limit_side_len: int = 960,
+    text_recognition_batch_size: int = 8,
+    render_dpi: int = 150,
+    page_max_side: int = 1536,
+    page_parallelism: int = max(1, min(4, os.cpu_count() or 1)),
 ) -> None:
     """Configure the lazy-loaded PaddleOCR engine registry."""
+    global _PDF_RENDER_DPI, _OCR_PAGE_MAX_SIDE, _OCR_ENGINE_GENERATION
+
+    resolved_enable_mkldnn = (
+        (not use_gpu and os.name != "nt")
+        if enable_mkldnn is None
+        else (enable_mkldnn if not use_gpu else False)
+    )
+
     next_options = {
         "use_gpu": use_gpu,
         "use_angle_cls": use_angle_cls,
         "show_log": show_log,
+        "enable_mkldnn": resolved_enable_mkldnn,
+        "cpu_threads": max(1, cpu_threads or _OCR_OPTIONS["cpu_threads"]),
+        "mkldnn_cache_capacity": max(1, mkldnn_cache_capacity),
+        "text_det_limit_side_len": max(512, text_det_limit_side_len),
+        "text_det_limit_type": "max",
+        "text_recognition_batch_size": max(1, text_recognition_batch_size),
+        "page_parallelism": max(1, page_parallelism),
     }
 
     if next_options != _OCR_OPTIONS:
-        _OCR_ENGINES.clear()
-        _OCR_OPTIONS.update(next_options)
+        with _OCR_ENGINES_LOCK:
+            _OCR_ENGINE_GENERATION += 1
+            _OCR_ENGINES.clear()
+            _OCR_OPTIONS.update(next_options)
+
+    _PDF_RENDER_DPI = max(120, render_dpi)
+    _OCR_PAGE_MAX_SIDE = max(1200, page_max_side)
 
     logger.info(
-        "PaddleOCR configured (use_gpu=%s, use_angle_cls=%s)",
+        (
+            "PaddleOCR configured (use_gpu=%s, use_angle_cls=%s, enable_mkldnn=%s, "
+            "cpu_threads=%s, text_det_limit_side_len=%s, text_recognition_batch_size=%s, "
+            "render_dpi=%s, page_max_side=%s, page_parallelism=%s, worker_cpu_threads=%s)"
+        ),
         _OCR_OPTIONS["use_gpu"],
         _OCR_OPTIONS["use_angle_cls"],
+        _OCR_OPTIONS["enable_mkldnn"],
+        _OCR_OPTIONS["cpu_threads"],
+        _OCR_OPTIONS["text_det_limit_side_len"],
+        _OCR_OPTIONS["text_recognition_batch_size"],
+        _PDF_RENDER_DPI,
+        _OCR_PAGE_MAX_SIDE,
+        _OCR_OPTIONS["page_parallelism"],
+        _get_engine_cpu_threads(),
     )
 
 
@@ -120,29 +174,22 @@ def extract_text_from_scanned_pdf(
 
         logger.info("Rendered %s PDF page(s) for OCR at %s DPI.", len(images), _PDF_RENDER_DPI)
 
-        preview_images = [
-            _prepare_image_for_ocr(image, max_side=_OCR_PREVIEW_MAX_SIDE)
-            for image in images[:_OCR_LANGUAGE_SAMPLE_PAGES]
-        ]
-
-        ranked_languages = _rank_ocr_languages(preview_images, languages)
+        ranked_languages = _select_ocr_language_order(languages)
         logger.info("OCR language order selected: %s", ", ".join(ranked_languages))
 
-        text_parts = []
-        for index, image in enumerate(images):
-            logger.info("OCR processing page %s/%s...", index + 1, len(images))
-            page_started_at = time.perf_counter()
-            prepared_image = _prepare_image_for_ocr(image, max_side=_OCR_PAGE_MAX_SIDE)
-            page_text = _ocr_page_with_fallback(prepared_image, ranked_languages)
-            if page_text:
-                text_parts.append(page_text)
-            logger.info(
-                "OCR finished page %s/%s in %.1fs (%s characters).",
-                index + 1,
-                len(images),
-                time.perf_counter() - page_started_at,
-                len(page_text),
-            )
+        prepared_pages = [
+            (index, _prepare_image_for_ocr(image, max_side=_OCR_PAGE_MAX_SIDE))
+            for index, image in enumerate(images)
+        ]
+        logger.info(
+            "Prepared %s page image(s) for OCR with max_side=%s and page_parallelism=%s.",
+            len(prepared_pages),
+            _OCR_PAGE_MAX_SIDE,
+            min(len(prepared_pages), _OCR_OPTIONS["page_parallelism"]),
+        )
+
+        page_results = _ocr_pages(prepared_pages, ranked_languages)
+        text_parts = [page_text for _, page_text in page_results if page_text]
 
         if not text_parts:
             return "[OCR Error: PaddleOCR could not extract readable text from this PDF.]"
@@ -180,8 +227,7 @@ def extract_text_from_image(
 
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        preview_image = _prepare_image_for_ocr(image, max_side=_OCR_PREVIEW_MAX_SIDE)
-        ranked_languages = _rank_ocr_languages([preview_image], languages)
+        ranked_languages = _select_ocr_language_order(languages)
         page_text = _ocr_page_with_fallback(
             _prepare_image_for_ocr(image, max_side=_OCR_PAGE_MAX_SIDE),
             ranked_languages,
@@ -233,25 +279,125 @@ def _prepare_image_for_ocr(image: Image.Image, max_side: int) -> Image.Image:
     return image.resize(resized_size, Image.Resampling.LANCZOS)
 
 
+def _get_page_ocr_executor() -> Optional[ThreadPoolExecutor]:
+    """Create a shared executor for page-level OCR parallelism."""
+    global _PAGE_OCR_EXECUTOR, _PAGE_OCR_EXECUTOR_MAX_WORKERS
+
+    worker_count = max(1, _OCR_OPTIONS["page_parallelism"])
+    if worker_count <= 1:
+        return None
+
+    with _PAGE_OCR_EXECUTOR_LOCK:
+        if _PAGE_OCR_EXECUTOR is None or _PAGE_OCR_EXECUTOR_MAX_WORKERS != worker_count:
+            if _PAGE_OCR_EXECUTOR is not None:
+                _PAGE_OCR_EXECUTOR.shutdown(wait=False, cancel_futures=False)
+            _PAGE_OCR_EXECUTOR = ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="ocr-page",
+            )
+            _PAGE_OCR_EXECUTOR_MAX_WORKERS = worker_count
+
+    return _PAGE_OCR_EXECUTOR
+
+
+def _ocr_pages(
+    prepared_pages: List[Tuple[int, Image.Image]],
+    ranked_languages: List[str],
+) -> List[Tuple[int, str]]:
+    """OCR pages serially or in parallel while preserving page order."""
+    total_pages = len(prepared_pages)
+    if total_pages <= 1 or _OCR_OPTIONS["page_parallelism"] <= 1:
+        return _ocr_pages_serial(prepared_pages, ranked_languages)
+
+    executor = _get_page_ocr_executor()
+    if executor is None:
+        return _ocr_pages_serial(prepared_pages, ranked_languages)
+
+    ordered_results: List[Optional[str]] = [None] * total_pages
+    futures = [
+        executor.submit(_ocr_page_task, index, total_pages, image, ranked_languages)
+        for index, image in prepared_pages
+    ]
+
+    for future in as_completed(futures):
+        try:
+            index, page_text = future.result()
+        except Exception as exc:
+            if _should_retry_without_mkldnn(exc):
+                logger.warning(
+                    "Parallel OCR worker hit MKLDNN runtime failure; retrying page batch without MKLDNN: %s",
+                    exc,
+                )
+                _disable_mkldnn_runtime()
+                return _ocr_pages_serial(prepared_pages, ranked_languages)
+            raise
+        ordered_results[index] = page_text
+
+    return [
+        (index, ordered_results[index] or "")
+        for index in range(total_pages)
+    ]
+
+
+def _ocr_pages_serial(
+    prepared_pages: List[Tuple[int, Image.Image]],
+    ranked_languages: List[str],
+) -> List[Tuple[int, str]]:
+    """OCR pages one by one while preserving page order."""
+    total_pages = len(prepared_pages)
+    return [
+        _ocr_page_task(index, total_pages, image, ranked_languages)
+        for index, image in prepared_pages
+    ]
+
+
+def _ocr_page_task(
+    index: int,
+    total_pages: int,
+    image: Image.Image,
+    ranked_languages: List[str],
+) -> Tuple[int, str]:
+    """OCR one page and return its ordered result."""
+    logger.info("OCR processing page %s/%s...", index + 1, total_pages)
+    page_started_at = time.perf_counter()
+    page_text = _ocr_page_with_fallback(image, ranked_languages)
+    logger.info(
+        "OCR finished page %s/%s in %.1fs (%s characters).",
+        index + 1,
+        total_pages,
+        time.perf_counter() - page_started_at,
+        len(page_text),
+    )
+    return index, page_text
+
+
 def _get_ocr_engine(language: str):
     """Get or create a PaddleOCR engine for the requested language."""
     normalized_language = _LANGUAGE_ALIASES.get(language.lower(), language.lower())
+    engine_key = (_OCR_ENGINE_GENERATION, threading.get_ident(), normalized_language)
 
-    if normalized_language not in _OCR_ENGINES:
-        if not PADDLEOCR_AVAILABLE:
-            raise RuntimeError("PaddleOCR is not installed")
+    engine = _OCR_ENGINES.get(engine_key)
+    if engine is not None:
+        return engine
+
+    if not PADDLEOCR_AVAILABLE:
+        raise RuntimeError("PaddleOCR is not installed")
+
+    with _OCR_ENGINES_LOCK:
+        engine = _OCR_ENGINES.get(engine_key)
+        if engine is not None:
+            return engine
 
         try:
-            _OCR_ENGINES[normalized_language] = PaddleOCR(
-                **_build_engine_kwargs(normalized_language)
-            )
+            engine = PaddleOCR(**_build_engine_kwargs(normalized_language))
+            _OCR_ENGINES[engine_key] = engine
             logger.info("PaddleOCR model loaded for language '%s'.", normalized_language)
         except Exception as exc:
             raise RuntimeError(
                 f"PaddleOCR initialization failed for language '{normalized_language}': {exc}"
             ) from exc
 
-    return _OCR_ENGINES[normalized_language]
+    return engine
 
 
 def _normalize_language_candidates(languages: str | Iterable[str]) -> List[str]:
@@ -270,6 +416,16 @@ def _normalize_language_candidates(languages: str | Iterable[str]) -> List[str]:
                 candidates.append(normalized)
 
     return candidates or ["en", "hi"]
+
+
+def _select_ocr_language_order(languages: str | Iterable[str]) -> List[str]:
+    """Choose OCR language order without a separate preview OCR pass."""
+    candidates = _normalize_language_candidates(languages)
+
+    if len(candidates) == 2 and set(candidates) == {"en", "hi"}:
+        return ["en", "hi"]
+
+    return candidates
 
 
 def _rank_ocr_languages(images, languages: str | Iterable[str]) -> List[str]:
@@ -368,7 +524,16 @@ def _run_ocr(image: Image.Image, language: str) -> List[Dict[str, Optional[float
     """Run PaddleOCR on a PIL image and normalize the result structure."""
     engine = _get_ocr_engine(language)
     image_array = np.ascontiguousarray(np.asarray(image.convert("RGB")))
-    result = _invoke_ocr(engine, image_array)
+    try:
+        result = _invoke_ocr(engine, image_array)
+    except Exception as exc:
+        if _should_retry_without_mkldnn(exc):
+            logger.warning("PaddleOCR MKLDNN path failed; retrying without MKLDNN: %s", exc)
+            _disable_mkldnn_runtime()
+            engine = _get_ocr_engine(language)
+            result = _invoke_ocr(engine, image_array)
+        else:
+            raise
 
     lines: List[Dict[str, Optional[float]]] = []
     _collect_result_lines(result, lines)
@@ -388,14 +553,22 @@ def _build_engine_kwargs(language: str) -> Dict[str, object]:
     elif "use_gpu" in init_params:
         engine_kwargs["use_gpu"] = use_gpu
 
-    if not use_gpu and ("enable_mkldnn" in init_params or supports_modern_api):
-        engine_kwargs["enable_mkldnn"] = False
+    if not use_gpu:
+        engine_kwargs["enable_mkldnn"] = _OCR_OPTIONS["enable_mkldnn"]
+        engine_kwargs["cpu_threads"] = _get_engine_cpu_threads()
+        engine_kwargs["mkldnn_cache_capacity"] = _OCR_OPTIONS["mkldnn_cache_capacity"]
 
     # PaddleOCR 3.x defaults to the server detector for PP-OCRv5. The mobile
     # detector is materially faster on local CPU inference for scanned contracts.
     if not use_gpu and "text_detection_model_name" in init_params:
         engine_kwargs["text_detection_model_name"] = "PP-OCRv5_mobile_det"
         use_explicit_cpu_models = True
+
+    if not use_gpu and "text_det_limit_side_len" in init_params:
+        engine_kwargs["text_det_limit_side_len"] = _OCR_OPTIONS["text_det_limit_side_len"]
+
+    if not use_gpu and "text_det_limit_type" in init_params:
+        engine_kwargs["text_det_limit_type"] = _OCR_OPTIONS["text_det_limit_type"]
 
     if not use_gpu and "text_recognition_model_name" in init_params:
         if language == "en":
@@ -404,6 +577,9 @@ def _build_engine_kwargs(language: str) -> Dict[str, object]:
         elif language == "hi":
             engine_kwargs["text_recognition_model_name"] = "devanagari_PP-OCRv5_mobile_rec"
             use_explicit_cpu_models = True
+
+    if not use_gpu and "text_recognition_batch_size" in init_params:
+        engine_kwargs["text_recognition_batch_size"] = _OCR_OPTIONS["text_recognition_batch_size"]
 
     if use_explicit_cpu_models:
         engine_kwargs.pop("lang", None)
@@ -438,6 +614,19 @@ def _get_paddleocr_init_params() -> set[str]:
     return _PADDLEOCR_INIT_PARAMS
 
 
+def _get_paddleocr_predict_params() -> set[str]:
+    """Cache PaddleOCR predict parameters for per-call overrides."""
+    global _PADDLEOCR_PREDICT_PARAMS
+
+    if _PADDLEOCR_PREDICT_PARAMS is None:
+        try:
+            _PADDLEOCR_PREDICT_PARAMS = set(inspect.signature(PaddleOCR.predict).parameters)
+        except (AttributeError, TypeError, ValueError):
+            _PADDLEOCR_PREDICT_PARAMS = set()
+
+    return _PADDLEOCR_PREDICT_PARAMS
+
+
 def _supports_modern_paddleocr_api(init_params: set[str]) -> bool:
     """Detect PaddleOCR v3-style APIs that expose runtime args via **kwargs."""
     return "use_textline_orientation" in init_params and "use_gpu" not in init_params
@@ -447,15 +636,58 @@ def _invoke_ocr(engine: object, image_array: np.ndarray):
     """Invoke PaddleOCR across supported API generations."""
     predict = getattr(engine, "predict", None)
     if callable(predict):
+        predict_kwargs = _build_predict_kwargs()
         try:
-            return predict(
-                image_array,
-                use_textline_orientation=_OCR_OPTIONS["use_angle_cls"],
-            )
+            return predict(image_array, **predict_kwargs)
         except TypeError:
             return predict(image_array)
 
     return engine.ocr(image_array, cls=_OCR_OPTIONS["use_angle_cls"])
+
+
+def _build_predict_kwargs() -> Dict[str, object]:
+    """Build per-call OCR options supported by the installed predict API."""
+    predict_params = _get_paddleocr_predict_params()
+    predict_kwargs: Dict[str, object] = {}
+
+    if "use_textline_orientation" in predict_params:
+        predict_kwargs["use_textline_orientation"] = _OCR_OPTIONS["use_angle_cls"]
+
+    if "text_det_limit_side_len" in predict_params:
+        predict_kwargs["text_det_limit_side_len"] = _OCR_OPTIONS["text_det_limit_side_len"]
+
+    if "text_det_limit_type" in predict_params:
+        predict_kwargs["text_det_limit_type"] = _OCR_OPTIONS["text_det_limit_type"]
+
+    return predict_kwargs
+
+
+def _get_engine_cpu_threads() -> int:
+    """Split the configured CPU thread budget across page workers."""
+    page_parallelism = max(1, _OCR_OPTIONS["page_parallelism"])
+    return max(1, _OCR_OPTIONS["cpu_threads"] // page_parallelism)
+
+
+def _should_retry_without_mkldnn(exc: Exception) -> bool:
+    """Detect runtime failures that require falling back from MKLDNN on CPU."""
+    if _OCR_OPTIONS["use_gpu"] or not _OCR_OPTIONS["enable_mkldnn"]:
+        return False
+
+    message = str(exc).lower()
+    return any(token in message for token in ("onednn", "mkldnn", "convertpirattribute2runtimeattribute"))
+
+
+def _disable_mkldnn_runtime() -> None:
+    """Disable MKLDNN and rebuild OCR engines on the plain CPU path."""
+    global _OCR_ENGINE_GENERATION
+
+    if not _OCR_OPTIONS["enable_mkldnn"]:
+        return
+
+    _OCR_OPTIONS["enable_mkldnn"] = False
+    with _OCR_ENGINES_LOCK:
+        _OCR_ENGINE_GENERATION += 1
+        _OCR_ENGINES.clear()
 
 
 def _collect_result_lines(payload: object, lines: List[Dict[str, Optional[float]]]) -> None:

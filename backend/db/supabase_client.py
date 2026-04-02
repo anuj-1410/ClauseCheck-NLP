@@ -7,7 +7,9 @@ Falls back to in-memory storage if Supabase credentials are not configured.
 import uuid
 import json
 import logging
+import threading
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import httpx
@@ -17,24 +19,41 @@ logger = logging.getLogger(__name__)
 # In-memory fallback storage
 _memory_store: List[Dict[str, Any]] = []
 _MAX_MEMORY_STORE_ITEMS = 200
+_LOCAL_STORE_PATH = Path(__file__).with_name("analysis_results_fallback.json")
+_LOCAL_STORE_LOCK = threading.Lock()
+_SUPABASE_CONNECT_TIMEOUT_SECONDS = 10.0
+_SUPABASE_READ_TIMEOUT_SECONDS = 20.0
+_SUPABASE_WRITE_TIMEOUT_SECONDS = 60.0
 _supabase_url = ""
 _supabase_key = ""
 _use_supabase = False
 
 
-def _headers():
+def _headers(prefer: Optional[str] = None):
     """Build Supabase REST API headers."""
-    return {
+    headers = {
         "apikey": _supabase_key,
         "Authorization": f"Bearer {_supabase_key}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation",
     }
+    if prefer:
+        headers["Prefer"] = f"return={prefer}"
+    return headers
 
 
 def _rest_url(table: str = "analysis_results"):
     """Build Supabase REST endpoint URL."""
     return f"{_supabase_url}/rest/v1/{table}"
+
+
+def _timeout(total_seconds: float) -> httpx.Timeout:
+    """Build consistent HTTP timeouts for Supabase requests."""
+    return httpx.Timeout(total_seconds, connect=_SUPABASE_CONNECT_TIMEOUT_SECONDS)
+
+
+def _payload_size_kb(payload: Dict[str, Any]) -> float:
+    """Approximate JSON payload size to help diagnose slow inserts."""
+    return len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) / 1024
 
 
 def initialize(url: str, key: str):
@@ -51,7 +70,7 @@ def initialize(url: str, key: str):
                 _rest_url(),
                 headers=_headers(),
                 params={"select": "id", "limit": "1"},
-                timeout=10,
+                timeout=_timeout(_SUPABASE_READ_TIMEOUT_SECONDS),
             )
             if resp.status_code in (200, 206):
                 _use_supabase = True
@@ -91,54 +110,64 @@ def store_result(data: Dict[str, Any]) -> Dict[str, Any]:
         "clause_analysis": data.get("clause_analysis", {}),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
+    payload_size_kb = _payload_size_kb(record)
 
     if _use_supabase:
         try:
             resp = httpx.post(
                 _rest_url(),
-                headers=_headers(),
+                headers=_headers(prefer="minimal"),
                 json=record,
-                timeout=15,
+                timeout=_timeout(_SUPABASE_WRITE_TIMEOUT_SECONDS),
             )
-            if resp.status_code in (200, 201):
-                logger.info(f"Stored result in Supabase: {record['id']}")
-                returned = resp.json()
-                stored = returned[0] if isinstance(returned, list) and returned else record
-                return _normalize_record(stored)
+            if resp.status_code in (200, 201, 204):
+                logger.info("Stored result in Supabase: %s (%.1f KB)", record["id"], payload_size_kb)
+                return _normalize_record(record)
             else:
-                logger.error(f"Supabase insert failed ({resp.status_code}): {resp.text}")
-                _append_to_memory_store(record)
+                logger.error(
+                    "Supabase insert failed (%s): %s. Payload size: %.1f KB. Falling back locally.",
+                    resp.status_code,
+                    resp.text,
+                    payload_size_kb,
+                )
+                _append_to_fallback_store(record)
                 return _normalize_record(record)
         except Exception as e:
-            logger.error(f"Supabase insert failed: {e}. Falling back to memory.")
-            _append_to_memory_store(record)
+            logger.error(
+                "Supabase insert failed: %s. Payload size: %.1f KB. Falling back locally.",
+                e,
+                payload_size_kb,
+            )
+            _append_to_fallback_store(record)
             return _normalize_record(record)
     else:
-        _append_to_memory_store(record)
-        logger.info(f"Stored result in memory: {record['id']}")
+        _append_to_fallback_store(record)
+        logger.info("Stored result in local fallback: %s", record["id"])
         return _normalize_record(record)
 
 
 def get_all_results() -> List[Dict[str, Any]]:
     """Fetch all analysis results, newest first."""
+    fallback_results = _collect_fallback_results()
+
     if _use_supabase:
         try:
             resp = httpx.get(
                 _rest_url(),
                 headers=_headers(),
                 params={"select": "*", "order": "created_at.desc"},
-                timeout=10,
+                timeout=_timeout(_SUPABASE_READ_TIMEOUT_SECONDS),
             )
             if resp.status_code == 200:
-                return [_normalize_record(record) for record in resp.json()]
+                return _normalize_records(_merge_records(fallback_results, resp.json()))
             else:
                 logger.error(f"Supabase fetch failed ({resp.status_code})")
-                return _get_normalized_memory_store()
+                return _normalize_records(fallback_results)
         except Exception as e:
-            logger.error(f"Supabase fetch failed: {e}. Returning memory store.")
-            return _get_normalized_memory_store()
+            logger.error(f"Supabase fetch failed: {e}. Returning fallback store.")
+            return _normalize_records(fallback_results)
     else:
-        return _get_normalized_memory_store()
+        return _normalize_records(fallback_results)
 
 
 def get_result_by_id(result_id: str) -> Optional[Dict[str, Any]]:
@@ -149,19 +178,105 @@ def get_result_by_id(result_id: str) -> Optional[Dict[str, Any]]:
                 _rest_url(),
                 headers=_headers(),
                 params={"select": "*", "id": f"eq.{result_id}"},
-                timeout=10,
+                timeout=_timeout(_SUPABASE_READ_TIMEOUT_SECONDS),
             )
             if resp.status_code == 200:
                 data = resp.json()
-                return _normalize_record(data[0]) if data else None
+                if data:
+                    return _normalize_record(data[0])
             else:
                 logger.error(f"Supabase fetch failed ({resp.status_code})")
-                return _find_in_memory(result_id)
         except Exception as e:
             logger.error(f"Supabase fetch failed: {e}.")
-            return _find_in_memory(result_id)
-    else:
-        return _find_in_memory(result_id)
+
+    local_record = _find_in_local_store(result_id)
+    if local_record is not None:
+        return _normalize_record(local_record)
+
+    return _find_in_memory(result_id)
+
+
+def _append_to_fallback_store(record: Dict[str, Any]) -> None:
+    """Persist a fallback copy locally and in memory."""
+    try:
+        _append_to_local_store(record)
+    except Exception as exc:
+        logger.error("Local fallback write failed: %s", exc)
+
+    _append_to_memory_store(record)
+
+
+def _collect_fallback_results() -> List[Dict[str, Any]]:
+    """Collect locally cached results from disk and memory."""
+    return _merge_records(_load_local_store(), list(_memory_store))
+
+
+def _merge_records(*record_groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge records by ID so remote data can override local fallbacks."""
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for records in record_groups:
+        for record in records or []:
+            if not isinstance(record, dict):
+                continue
+            record_id = str(record.get("id") or "").strip()
+            if not record_id:
+                continue
+            merged[record_id] = record
+
+    return list(merged.values())
+
+
+def _normalize_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalize and sort records newest first."""
+    return [
+        _normalize_record(record)
+        for record in sorted(records, key=lambda x: x.get("created_at", ""), reverse=True)
+    ]
+
+
+def _load_local_store() -> List[Dict[str, Any]]:
+    """Load locally cached fallback records from disk."""
+    with _LOCAL_STORE_LOCK:
+        return _load_local_store_unlocked()
+
+
+def _load_local_store_unlocked() -> List[Dict[str, Any]]:
+    """Load locally cached fallback records from disk without acquiring the lock."""
+    if not _LOCAL_STORE_PATH.exists():
+        return []
+
+    try:
+        payload = json.loads(_LOCAL_STORE_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Failed to read local fallback store: %s", exc)
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    return [record for record in payload if isinstance(record, dict)]
+
+
+def _append_to_local_store(record: Dict[str, Any]) -> None:
+    """Append one record to the on-disk fallback store."""
+    with _LOCAL_STORE_LOCK:
+        records = [item for item in _load_local_store_unlocked() if item.get("id") != record.get("id")]
+        records.append(record)
+        if len(records) > _MAX_MEMORY_STORE_ITEMS:
+            records = sorted(records, key=lambda x: x.get("created_at", ""), reverse=True)[:_MAX_MEMORY_STORE_ITEMS]
+        _LOCAL_STORE_PATH.write_text(
+            json.dumps(records, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+
+
+def _find_in_local_store(result_id: str) -> Optional[Dict[str, Any]]:
+    """Find a result in the on-disk fallback store."""
+    for record in _load_local_store():
+        if record.get("id") == result_id:
+            return record
+    return None
 
 
 def _find_in_memory(result_id: str) -> Optional[Dict[str, Any]]:
@@ -183,10 +298,7 @@ def _append_to_memory_store(record: Dict[str, Any]) -> None:
 
 def _get_normalized_memory_store() -> List[Dict[str, Any]]:
     """Return normalized in-memory records, newest first."""
-    return [
-        _normalize_record(record)
-        for record in sorted(_memory_store, key=lambda x: x["created_at"], reverse=True)
-    ]
+    return _normalize_records(list(_memory_store))
 
 
 def _normalize_record(record: Dict[str, Any]) -> Dict[str, Any]:

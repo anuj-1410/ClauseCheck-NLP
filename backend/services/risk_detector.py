@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy-loaded semantic model
 _semantic_model = None
+_semantic_prototype_embeddings = None
 _semantic_model_lock = threading.Lock()
 
 # ──────────────────────────────────────────────
@@ -208,6 +209,21 @@ def _get_semantic_model():
     return _semantic_model if _semantic_model is not False else None
 
 
+def _get_proto_embeddings(model):
+    """Cache encoded risk prototypes so each request only embeds clause text."""
+    global _semantic_prototype_embeddings
+
+    if _semantic_prototype_embeddings is None:
+        with _semantic_model_lock:
+            if _semantic_prototype_embeddings is None:
+                _semantic_prototype_embeddings = {
+                    risk_type: model.encode(prototypes, convert_to_numpy=True)
+                    for risk_type, prototypes in RISK_PROTOTYPES.items()
+                }
+
+    return _semantic_prototype_embeddings
+
+
 def detect_risks(
     clauses: List[Dict],
     language: str = "en"
@@ -296,10 +312,7 @@ def _detect_semantic_risks(
     try:
         import numpy as np
 
-        # Pre-encode all risk prototypes
-        proto_embeddings = {}
-        for risk_type, prototypes in RISK_PROTOTYPES.items():
-            proto_embeddings[risk_type] = model.encode(prototypes, convert_to_numpy=True)
+        proto_embeddings = _get_proto_embeddings(model)
 
         # Encode all clause texts
         clause_texts = [c["text"][:500] for c in clauses]

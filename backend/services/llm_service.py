@@ -86,6 +86,28 @@ def translate_to_plain_english(clause_text: str, language: str = "en") -> str:
     return _require_llm_success(response)
 
 
+def translate_clauses_to_plain_english(
+    clause_texts: List[str],
+    language: str = "en",
+    chunk_size: int = 4,
+) -> List[str]:
+    """Simplify multiple clauses in small batches to reduce total LLM latency."""
+    if not clause_texts:
+        return []
+
+    simplified = list(clause_texts)
+    pending_indexes = [index for index, text in enumerate(clause_texts) if text and text.strip()]
+
+    for start in range(0, len(pending_indexes), chunk_size):
+        chunk_indexes = pending_indexes[start:start + chunk_size]
+        payload = [clause_texts[index] for index in chunk_indexes]
+        simplified_chunk = _translate_clause_batch(payload, language)
+        for index, simplified_text in zip(chunk_indexes, simplified_chunk):
+            simplified[index] = simplified_text
+
+    return simplified
+
+
 def translate_text(text: str, target_language: str, source_language: Optional[str] = None) -> str:
     """Translate a UI-facing text fragment while preserving formatting and meaning."""
     if not text or not text.strip():
@@ -225,6 +247,37 @@ def _translate_text_batch(
 
     logger.warning("Batch translation fallback triggered due to non-JSON or mismatched response.")
     return [translate_text(text, target_language, source_language) for text in texts]
+
+
+def _translate_clause_batch(
+    clause_texts: List[str],
+    language: str,
+) -> List[str]:
+    """Simplify a batch of clauses and return the results in the same order."""
+    if not clause_texts:
+        return []
+
+    target_language = "simple Hindi" if language == "hi" else "plain English"
+    system = (
+        "You are a legal simplifier. Convert each legal clause in the JSON array into concise, "
+        f"{target_language} at roughly 8th-grade reading level. Preserve the legal meaning, "
+        "stay accurate, and keep each result to 2-3 sentences max. Return only a JSON array "
+        "of simplified strings in the same order."
+    )
+    user = (
+        "Simplify every item in this JSON array. Return only a JSON array with the same number "
+        "of items and in the same order.\n\n"
+        f"{json.dumps(clause_texts, ensure_ascii=False)}"
+    )
+
+    max_tokens = min(3200, 400 + sum(len(text.split()) for text in clause_texts) * 3)
+    response = _require_llm_success(_call_llm(system, user, max_tokens=max_tokens))
+    parsed = _parse_json_array(response)
+    if parsed is not None and len(parsed) == len(clause_texts):
+        return parsed
+
+    logger.warning("Batch plain-English fallback triggered due to non-JSON or mismatched response.")
+    return [translate_to_plain_english(text, language) for text in clause_texts]
 
 
 def _parse_json_array(raw_text: str) -> Optional[List[str]]:

@@ -27,7 +27,7 @@ const STEPS = [
 ];
 
 const FEATURES = [
-    { Icon: IconBrain, title: 'Plain English', desc: 'Every clause translated into simple, everyday language using AI.' },
+    { Icon: IconBrain, title: 'Plain English', desc: 'The first 15 clauses translated into simple, everyday language using AI.' },
     { Icon: IconSearch, title: 'Risk Detection', desc: 'Identifies unlimited liability, one-sided terms, and hidden traps.' },
     { Icon: IconBarChart, title: 'Compliance Scoring', desc: 'Jurisdiction-aware checks with legal references and 0–100 score.' },
     { Icon: IconGlobe, title: 'Bilingual AI', desc: 'Analyzes contracts in English and Hindi with auto-detection.' },
@@ -106,8 +106,11 @@ export default function UploadPage() {
 
             const result = await response.json();
             clearInterval(stepInterval);
-            
-            sessionStorage.setItem(`result_${result.id}`, JSON.stringify(result));
+
+            try {
+                sessionStorage.setItem(`result_${result.id}`, JSON.stringify(result));
+            } catch {
+            }
             navigate(`/results/${result.id}`);
         } catch (err) {
             clearInterval(stepInterval);

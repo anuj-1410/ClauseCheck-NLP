@@ -11,7 +11,21 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import SUPABASE_URL, SUPABASE_KEY, PADDLEOCR_USE_GPU, GROQ_API_KEY, SPACY_MODEL
+from config import (
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    PADDLEOCR_USE_GPU,
+    PADDLEOCR_ENABLE_MKLDNN,
+    PADDLEOCR_CPU_THREADS,
+    PADDLEOCR_MKLDNN_CACHE_CAPACITY,
+    PADDLEOCR_TEXT_DET_LIMIT_SIDE_LEN,
+    PADDLEOCR_TEXT_RECOGNITION_BATCH_SIZE,
+    OCR_RENDER_DPI,
+    OCR_PAGE_MAX_SIDE,
+    OCR_PAGE_PARALLELISM,
+    GROQ_API_KEY,
+    SPACY_MODEL,
+)
 from db.supabase_client import initialize as init_db
 from services.ocr_service import configure_paddleocr
 from services.llm_service import initialize as init_llm
@@ -46,7 +60,17 @@ async def lifespan(app: FastAPI):
     init_db(SUPABASE_URL, SUPABASE_KEY)
 
     # Configure OCR runtime
-    configure_paddleocr(use_gpu=PADDLEOCR_USE_GPU)
+    configure_paddleocr(
+        use_gpu=PADDLEOCR_USE_GPU,
+        enable_mkldnn=PADDLEOCR_ENABLE_MKLDNN,
+        cpu_threads=PADDLEOCR_CPU_THREADS,
+        mkldnn_cache_capacity=PADDLEOCR_MKLDNN_CACHE_CAPACITY,
+        text_det_limit_side_len=PADDLEOCR_TEXT_DET_LIMIT_SIDE_LEN,
+        text_recognition_batch_size=PADDLEOCR_TEXT_RECOGNITION_BATCH_SIZE,
+        render_dpi=OCR_RENDER_DPI,
+        page_max_side=OCR_PAGE_MAX_SIDE,
+        page_parallelism=OCR_PAGE_PARALLELISM,
+    )
 
     # Initialize LLM
     init_llm(GROQ_API_KEY)

@@ -45,15 +45,27 @@ export default function ResultsPage() {
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || 'Translation failed');
             setResult(data.result);
-            sessionStorage.setItem(`result_${id}`, JSON.stringify(data.result));
+            try {
+                sessionStorage.setItem(`result_${id}`, JSON.stringify(data.result));
+            } catch {
+            }
         } catch (err) { alert(err.message); }
         finally { setTranslating(false); }
     };
 
     useEffect(() => {
         const loadResult = async () => {
-            const cached = sessionStorage.getItem(`result_${id}`);
-            if (cached) { setResult(JSON.parse(cached)); setLoading(false); return; }
+            try {
+                const cached = sessionStorage.getItem(`result_${id}`);
+                if (cached) {
+                    setResult(JSON.parse(cached));
+                    setLoading(false);
+                    return;
+                }
+            } catch {
+                sessionStorage.removeItem(`result_${id}`);
+            }
+
             try {
                 const res = await fetch(`${API_URL}/api/history/${id}`);
                 if (!res.ok) throw new Error('Result not found');
@@ -223,6 +235,11 @@ export default function ResultsPage() {
                 {activeTab === 'plain' && (
                     <section className="animate-in">
                         <div className="section-header"><h2>Plain English Breakdown</h2><span className="section-badge">{plainEnglish.length} translated</span></div>
+                        {clauses.length > plainEnglish.length && plainEnglish.length > 0 && (
+                            <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+                                Showing plain-English translations for the first 15 clauses to stay within the LLM API limit.
+                            </p>
+                        )}
                         {plainEnglish.length === 0 ? (
                             <div className="empty-state glass-card"><div className="empty-state-icon"><IconLightbulb size={48} /></div><p>Plain English translations require a GROQ_API_KEY configured in the backend.</p></div>
                         ) : (
