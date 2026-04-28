@@ -1,4 +1,3 @@
-```markdown
 # ClauseCheck-NLP
 
 ClauseCheck is a **bilingual (English/Hindi) AI-powered legal contract analyzer**. It is designed to automatically parse, analyze, and grade legal documents by passing them through a comprehensive 14-step Natural Language Processing (NLP) pipeline.
@@ -113,9 +112,3 @@ ClauseCheck-NLP/
 ## 📜 License
 
 [MIT License](LICENSE) (or state your specific license here).
-```
-
-### How to add this:
-If you want to add this to your repository directly, you can either:
-1. Copy the markdown text above, create/edit a `README.md` file in the root directory, and push the changes.
-2. Let me know, and I can use my integration tools to create/update the `README.md` file on the `main` branch of your repository directly for you.
